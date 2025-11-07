@@ -43,6 +43,8 @@ public class EnergyBeam : MonoBehaviour
     private float timeOffset;
     private Collider beamCollider;
     private ParticleSystem particles;
+    private Outline outline;
+    private CameraManager cameraManager;
 
     // Public property to get/set beam size at runtime
     public float BeamSize
@@ -69,6 +71,15 @@ public class EnergyBeam : MonoBehaviour
         CreateBeam();
         AddCollider();
         CreateParticles();
+
+        // Find camera manager
+        cameraManager = FindObjectOfType<CameraManager>();
+
+        // Disable outline by default
+        if (outline != null)
+        {
+            outline.enabled = false;
+        }
     }
 
     void AddCollider()
@@ -206,6 +217,11 @@ public class EnergyBeam : MonoBehaviour
         meshRenderer.material = beamMaterial;
         meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
 
+        // Add outline to beam
+        outline = beamMesh.AddComponent<Outline>();
+        outline.OutlineColor = Color.red;
+        outline.OutlineWidth = 100f;
+
         Debug.Log("Beam material created and applied!");
 
         timeOffset = Random.Range(0f, 100f);
@@ -266,7 +282,13 @@ public class EnergyBeam : MonoBehaviour
 
     void Update()
     {
-        if (!animate || beamMesh == null)
+        if (beamMesh == null)
+            return;
+
+        // Update outline visibility based on camera mode and raycast
+        UpdateOutlineVisibility();
+
+        if (!animate)
             return;
 
         float time = Time.time + timeOffset;
@@ -296,6 +318,55 @@ public class EnergyBeam : MonoBehaviour
             float offset = time * scrollSpeed;
             beamMaterial.SetTextureOffset("_MainTex", new Vector2(0, offset));
         }
+    }
+
+    void UpdateOutlineVisibility()
+    {
+        if (outline == null || cameraManager == null)
+            return;
+
+        bool shouldShowOutline = false;
+        Camera mainCamera = Camera.main;
+
+        if (mainCamera == null)
+            return;
+
+        // Check which camera mode we're in
+        CameraManager.CameraMode currentMode = cameraManager.GetCurrentMode();
+
+        if (currentMode == CameraManager.CameraMode.ThirdPerson)
+        {
+            // Third person mode: raycast from screen center
+            Ray ray = mainCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0));
+            RaycastHit hit;
+
+            if (Physics.Raycast(ray, out hit, 100f))
+            {
+                // Check if we hit this beam
+                if (hit.collider.gameObject == beamMesh)
+                {
+                    shouldShowOutline = true;
+                }
+            }
+        }
+        else if (currentMode == CameraManager.CameraMode.Isometric)
+        {
+            // Isometric mode: raycast from mouse position
+            Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
+            RaycastHit hit;
+
+            if (Physics.Raycast(ray, out hit, 1000f))
+            {
+                // Check if we hit this beam
+                if (hit.collider.gameObject == beamMesh)
+                {
+                    shouldShowOutline = true;
+                }
+            }
+        }
+
+        // Enable or disable outline based on result
+        outline.enabled = shouldShowOutline;
     }
 
     void OnDestroy()
