@@ -45,6 +45,7 @@ public class EnergyBeam : MonoBehaviour
     private ParticleSystem particles;
     private Outline outline;
     private CameraManager cameraManager;
+    private bool isBeingInteracted = false;
 
     // Public property to get/set beam size at runtime
     public float BeamSize
@@ -346,7 +347,21 @@ public class EnergyBeam : MonoBehaviour
                 if (hit.collider.gameObject == beamMesh)
                 {
                     shouldShowOutline = true;
+
+                    // Check for E key press to interact
+                    if (Input.GetKey(KeyCode.E))
+                    {
+                        isBeingInteracted = true;
+                    }
+                    else
+                    {
+                        isBeingInteracted = false;
+                    }
                 }
+            }
+            else
+            {
+                isBeingInteracted = false;
             }
         }
         else if (currentMode == CameraManager.CameraMode.Isometric)
@@ -361,12 +376,39 @@ public class EnergyBeam : MonoBehaviour
                 if (hit.collider.gameObject == beamMesh)
                 {
                     shouldShowOutline = true;
+
+                    // Check for mouse click to interact
+                    if (Input.GetMouseButton(0)) // Left mouse button
+                    {
+                        isBeingInteracted = true;
+                    }
+                    else
+                    {
+                        isBeingInteracted = false;
+                    }
                 }
+            }
+            else
+            {
+                isBeingInteracted = false;
             }
         }
 
         // Enable or disable outline based on result
         outline.enabled = shouldShowOutline;
+
+        // Update outline color based on interaction state
+        if (shouldShowOutline)
+        {
+            if (isBeingInteracted)
+            {
+                outline.OutlineColor = new Color(0.5f, 0f, 0.5f); // Purple
+            }
+            else
+            {
+                outline.OutlineColor = Color.red;
+            }
+        }
     }
 
     void OnDestroy()
