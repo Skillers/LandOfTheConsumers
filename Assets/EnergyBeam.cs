@@ -330,7 +330,7 @@ public class EnergyBeam : MonoBehaviour
 
     void UpdateOutlineVisibility()
     {
-        if (outline == null || cameraManager == null)
+        if (outline == null)
             return;
 
         bool shouldShowOutline = false;
@@ -339,8 +339,13 @@ public class EnergyBeam : MonoBehaviour
         if (mainCamera == null)
             return;
 
-        // Check which camera mode we're in
-        CameraManager.CameraMode currentMode = cameraManager.GetCurrentMode();
+        // Check which camera mode we're in (if camera manager exists)
+        // Default to isometric (mouse-based) if no camera manager found
+        CameraManager.CameraMode currentMode = CameraManager.CameraMode.Isometric;
+        if (cameraManager != null)
+        {
+            currentMode = cameraManager.GetCurrentMode();
+        }
 
         if (currentMode == CameraManager.CameraMode.ThirdPerson)
         {
