@@ -8,6 +8,7 @@ public class SimpleNetworkUI : MonoBehaviour
 {
     [Header("UI References")]
     public Button joinButton;
+    public Button hostButton;
 
     [Header("Connection Settings")]
     public TMP_InputField ipAddressInput;
@@ -37,10 +38,15 @@ public class SimpleNetworkUI : MonoBehaviour
         if (portInput != null)
             portInput.text = defaultPort.ToString();
 
-        // Connect Join button
+        // Connect buttons
         if (joinButton != null)
         {
             joinButton.onClick.AddListener(OnJoinButtonClicked);
+        }
+
+        if (hostButton != null)
+        {
+            hostButton.onClick.AddListener(OnHostButtonClicked);
         }
     }
 
@@ -77,5 +83,18 @@ public class SimpleNetworkUI : MonoBehaviour
             }
         }
         return defaultPort;
+    }
+
+    void OnHostButtonClicked()
+    {
+        // Host acts as both server and client (perfect for editor testing!)
+        ushort port = GetPortFromInput();
+
+        transport.ConnectionData.Address = "127.0.0.1";
+        transport.ConnectionData.Port = port;
+
+        NetworkManager.Singleton.StartHost();
+        gameObject.SetActive(false);
+        Debug.Log($"Started as Host on port {port} (Server + Local Client)");
     }
 }
