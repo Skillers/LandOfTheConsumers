@@ -46,6 +46,13 @@ public class EnergyBeam : MonoBehaviour
     private Outline outline;
     private CameraManager cameraManager;
     private bool isBeingInteracted = false;
+    private bool wasHoveringLastFrame = false;
+    private Color originalBeamColor;
+
+    // Track hoverable objects
+    private GameObject currentHoveredObject;
+    private Material currentHoveredMaterial;
+    private Color originalHoverableColor;
 
     // Public property to get/set beam size at runtime
     public float BeamSize
@@ -343,6 +350,8 @@ public class EnergyBeam : MonoBehaviour
 
             if (Physics.Raycast(ray, out hit, 100f))
             {
+                Debug.Log($"[EnergyBeam] Third-person raycast hit: {hit.collider.gameObject.name}, Tag: {hit.collider.tag}");
+
                 // Check if we hit this beam
                 if (hit.collider.gameObject == beamMesh)
                 {
@@ -357,11 +366,39 @@ public class EnergyBeam : MonoBehaviour
                     {
                         isBeingInteracted = false;
                     }
+
+                    // Restore any hoverable object since we're not hovering it anymore
+                    RestoreHoverableObjectColor();
+                }
+                // Check if we hit a hoverable object
+                else if (hit.collider.CompareTag("Hoverable"))
+                {
+                    // Don't show outline for hoverable objects, only for the beam
+                    shouldShowOutline = false;
+
+                    // Check for E key press to interact
+                    if (Input.GetKey(KeyCode.E))
+                    {
+                        isBeingInteracted = true;
+                    }
+                    else
+                    {
+                        isBeingInteracted = false;
+                    }
+
+                    // Handle color change for hoverable object
+                    HandleHoverableObjectColor(hit.collider.gameObject);
+                }
+                else
+                {
+                    // Hit something else - restore hoverable color
+                    RestoreHoverableObjectColor();
                 }
             }
             else
             {
                 isBeingInteracted = false;
+                RestoreHoverableObjectColor();
             }
         }
         else if (currentMode == CameraManager.CameraMode.Isometric)
@@ -372,6 +409,8 @@ public class EnergyBeam : MonoBehaviour
 
             if (Physics.Raycast(ray, out hit, 1000f))
             {
+                Debug.Log($"[EnergyBeam] Isometric raycast hit: {hit.collider.gameObject.name}, Tag: {hit.collider.tag}");
+
                 // Check if we hit this beam
                 if (hit.collider.gameObject == beamMesh)
                 {
@@ -386,11 +425,39 @@ public class EnergyBeam : MonoBehaviour
                     {
                         isBeingInteracted = false;
                     }
+
+                    // Restore any hoverable object since we're not hovering it anymore
+                    RestoreHoverableObjectColor();
+                }
+                // Check if we hit a hoverable object
+                else if (hit.collider.CompareTag("Hoverable"))
+                {
+                    // Don't show outline for hoverable objects, only for the beam
+                    shouldShowOutline = false;
+
+                    // Check for mouse click to interact
+                    if (Input.GetMouseButton(0)) // Left mouse button
+                    {
+                        isBeingInteracted = true;
+                    }
+                    else
+                    {
+                        isBeingInteracted = false;
+                    }
+
+                    // Handle color change for hoverable object
+                    HandleHoverableObjectColor(hit.collider.gameObject);
+                }
+                else
+                {
+                    // Hit something else - restore hoverable color
+                    RestoreHoverableObjectColor();
                 }
             }
             else
             {
                 isBeingInteracted = false;
+                RestoreHoverableObjectColor();
             }
         }
 
@@ -409,10 +476,98 @@ public class EnergyBeam : MonoBehaviour
                 outline.OutlineColor = Color.red;
             }
         }
+
+        // === COLOR CHANGE TEST FOR HOVER DETECTION ===
+        // This changes the beam's material color to test if hover detection is working
+        // If the color changes but outline doesn't show, the hover works but outline shader has issues
+        if (shouldShowOutline)
+        {
+            // Store original color on first hover
+            if (!wasHoveringLastFrame && beamMaterial != null)
+            {
+                originalBeamColor = beamMaterial.color;
+                Debug.Log("[EnergyBeam] Started hovering - storing original color: " + originalBeamColor);
+            }
+
+            // Change beam color based on interaction
+            if (beamMaterial != null)
+            {
+                if (isBeingInteracted)
+                {
+                    beamMaterial.color = Color.blue; // Blue when interacting
+                    Debug.Log("[EnergyBeam] Interacting - beam color changed to BLUE");
+                }
+                else
+                {
+                    beamMaterial.color = Color.green; // Green when hovering
+                    Debug.Log("[EnergyBeam] Hovering - beam color changed to GREEN");
+                }
+            }
+
+            wasHoveringLastFrame = true;
+        }
+        else
+        {
+            // Restore original color when not hovering
+            if (wasHoveringLastFrame && beamMaterial != null)
+            {
+                beamMaterial.color = originalBeamColor;
+                Debug.Log("[EnergyBeam] Stopped hovering - restored original color: " + originalBeamColor);
+            }
+
+            wasHoveringLastFrame = false;
+        }
+    }
+
+    void HandleHoverableObjectColor(GameObject hitObject)
+    {
+        // If this is a different object than we were hovering, restore the old one first
+        if (currentHoveredObject != null && currentHoveredObject != hitObject)
+        {
+            RestoreHoverableObjectColor();
+        }
+
+        // Get the renderer and material
+        Renderer hitRenderer = hitObject.GetComponent<Renderer>();
+        if (hitRenderer == null || hitRenderer.material == null)
+            return;
+
+        // If this is a new object, store its original color
+        if (currentHoveredObject != hitObject)
+        {
+            currentHoveredObject = hitObject;
+            currentHoveredMaterial = hitRenderer.material;
+            originalHoverableColor = currentHoveredMaterial.color;
+            Debug.Log($"[EnergyBeam] Started hovering {hitObject.name}, original color: {originalHoverableColor}");
+        }
+
+        // Apply hover color
+        if (isBeingInteracted)
+        {
+            currentHoveredMaterial.color = Color.blue;
+        }
+        else
+        {
+            currentHoveredMaterial.color = Color.green;
+        }
+    }
+
+    void RestoreHoverableObjectColor()
+    {
+        if (currentHoveredObject != null && currentHoveredMaterial != null)
+        {
+            currentHoveredMaterial.color = originalHoverableColor;
+            Debug.Log($"[EnergyBeam] Stopped hovering {currentHoveredObject.name}, restored color: {originalHoverableColor}");
+            currentHoveredObject = null;
+            currentHoveredMaterial = null;
+        }
     }
 
     void OnDestroy()
     {
+        // Restore any hoverable object color before destroying
+        RestoreHoverableObjectColor();
+
         if (beamMaterial != null)
             Destroy(beamMaterial);
     }

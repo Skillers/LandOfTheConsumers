@@ -144,12 +144,31 @@ public class PlayerController : NetworkBehaviour
         {
             Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
             RaycastHit hit;
-            
+
+            // First check if we're clicking on a hoverable object or beam (without layer mask)
+            if (Physics.Raycast(ray, out hit, 1000f))
+            {
+                // If we hit a hoverable object, don't move - just interact with it
+                if (hit.collider.CompareTag("Hoverable"))
+                {
+                    Debug.Log($"[PlayerController] Clicked on hoverable object: {hit.collider.gameObject.name} - not moving");
+                    return; // Don't process movement
+                }
+
+                // If we hit a beam (EnergyBeam), don't move - just interact with it
+                if (hit.collider.GetComponentInParent<EnergyBeam>() != null)
+                {
+                    Debug.Log($"[PlayerController] Clicked on beam: {hit.collider.gameObject.name} - not moving");
+                    return; // Don't process movement
+                }
+            }
+
+            // Now check for ground to move to (with layer mask)
             if (Physics.Raycast(ray, out hit, 1000f, groundLayer))
             {
                 clickMoveTarget = hit.point;
                 isMovingToTarget = true;
-                
+
                 if (clickMarker != null)
                 {
                     clickMarker.SetActive(true);
