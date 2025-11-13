@@ -37,6 +37,9 @@ public class EnergyBeam : MonoBehaviour
     public float minSpawnHeight = 0f;
     public float maxSpawnHeight = 20f;
 
+    [Header("Material (Optional)")]
+    [SerializeField] private Material customBeamMaterial;
+
     private GameObject beamMesh;
     private GameObject beamColliderObj;
     private Material beamMaterial;
@@ -207,20 +210,34 @@ public class EnergyBeam : MonoBehaviour
         Mesh cylinderMesh = CreateCylinderMesh();
         meshFilter.mesh = cylinderMesh;
 
-        beamMaterial = new Material(Shader.Find("Standard"));
-        beamMaterial.color = beamColorStart;
+        // Use custom material if assigned, otherwise create one from scratch
+        if (customBeamMaterial != null)
+        {
+            // Create an instance of the custom material
+            beamMaterial = Instantiate(customBeamMaterial);
+            beamMaterial.name = customBeamMaterial.name + " (Instance)";
+            Debug.Log("Using custom beam material: " + customBeamMaterial.name);
+        }
+        else
+        {
+            // Create default material programmatically
+            beamMaterial = new Material(Shader.Find("Standard"));
+            beamMaterial.color = beamColorStart;
 
-        beamMaterial.SetFloat("_Mode", 3);
-        beamMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-        beamMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-        beamMaterial.SetInt("_ZWrite", 0);
-        beamMaterial.DisableKeyword("_ALPHATEST_ON");
-        beamMaterial.EnableKeyword("_ALPHABLEND_ON");
-        beamMaterial.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-        beamMaterial.renderQueue = 3000;
+            beamMaterial.SetFloat("_Mode", 3);
+            beamMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            beamMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            beamMaterial.SetInt("_ZWrite", 0);
+            beamMaterial.DisableKeyword("_ALPHATEST_ON");
+            beamMaterial.EnableKeyword("_ALPHABLEND_ON");
+            beamMaterial.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            beamMaterial.renderQueue = 3000;
 
-        beamMaterial.EnableKeyword("_EMISSION");
-        beamMaterial.SetColor("_EmissionColor", beamColorStart * 2f);
+            beamMaterial.EnableKeyword("_EMISSION");
+            beamMaterial.SetColor("_EmissionColor", beamColorStart * 2f);
+
+            Debug.Log("Beam material created programmatically");
+        }
 
         meshRenderer.material = beamMaterial;
         meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -229,8 +246,6 @@ public class EnergyBeam : MonoBehaviour
         outline = beamMesh.AddComponent<Outline>();
         outline.OutlineColor = Color.red;
         outline.OutlineWidth = 100f;
-
-        Debug.Log("Beam material created and applied!");
 
         timeOffset = Random.Range(0f, 100f);
     }

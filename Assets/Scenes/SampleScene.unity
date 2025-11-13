@@ -2386,8 +2386,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   beamHeight: 400
   beamRadius: 3
-  beamColorStart: {r: 0.28321585, g: 0.04396581, b: 0.4392157, a: 0.72156864}
-  beamColorEnd: {r: 0.4275467, g: 0.2763439, b: 0.509434, a: 0.36078432}
+  beamColorStart: {r: 0.8156863, g: 0.057493784, b: 0.7169812, a: 0.72156864}
+  beamColorEnd: {r: 0.9056604, g: 0.51690996, b: 0.80410546, a: 0.5176471}
   colorCycleSpeed: 1
   segments: 16
   currentBeamScaleXZ: 1
@@ -2411,6 +2411,7 @@ MonoBehaviour:
   maxLifetime: 10
   minSpawnHeight: 0
   maxSpawnHeight: 20
+  customBeamMaterial: {fileID: 2100000, guid: 569497e6685f68a42abe71ce54b128af, type: 2}
 --- !u!4 &1944755635
 Transform:
   m_ObjectHideFlags: 0
