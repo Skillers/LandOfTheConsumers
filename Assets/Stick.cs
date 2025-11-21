@@ -220,8 +220,18 @@ public class Stick : NetworkBehaviour
         if (distance <= pickupRange)
         {
             Debug.Log($"[Stick] Picked up! Distance: {distance:F2}");
-            // Request server to destroy the stick
-            RequestPickupServerRpc();
+
+            // Get the player's NetworkObject to identify them to the server
+            PlayerController playerController = player.GetComponent<PlayerController>();
+            if (playerController != null && playerController.TryGetComponent<NetworkObject>(out NetworkObject playerNetObj))
+            {
+                // Request server to process pickup with player identification
+                RequestPickupServerRpc(playerNetObj.NetworkObjectId);
+            }
+            else
+            {
+                Debug.LogError("[Stick] Player doesn't have PlayerController or NetworkObject!");
+            }
         }
         else
         {
@@ -230,10 +240,32 @@ public class Stick : NetworkBehaviour
     }
 
     [ServerRpc(RequireOwnership = false)]
-    void RequestPickupServerRpc()
+    void RequestPickupServerRpc(ulong playerNetworkObjectId)
     {
+        // Server validates and processes the pickup
+        Debug.Log($"[Stick] Server processing pickup request from player NetworkObjectId: {playerNetworkObjectId}");
+
+        // Find the player's NetworkObject
+        if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(playerNetworkObjectId, out NetworkObject playerNetObj))
+        {
+            PlayerController playerController = playerNetObj.GetComponent<PlayerController>();
+            if (playerController != null)
+            {
+                // Server increments the player's stick count
+                playerController.AddStick();
+                Debug.Log($"[Stick] Server validated pickup for player {playerController.OwnerClientId}. New count: {playerController.GetStickCount()}");
+            }
+            else
+            {
+                Debug.LogError("[Stick] Player NetworkObject found but no PlayerController component!");
+            }
+        }
+        else
+        {
+            Debug.LogError($"[Stick] Could not find player with NetworkObjectId: {playerNetworkObjectId}");
+        }
+
         // Server destroys the stick, which will sync to all clients
-        Debug.Log($"[Stick] Server destroying stick: {gameObject.name}");
         NetworkObject netObj = GetComponent<NetworkObject>();
         if (netObj != null && netObj.IsSpawned)
         {

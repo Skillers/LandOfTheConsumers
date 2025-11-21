@@ -220,8 +220,12 @@ public class Outline : MonoBehaviour {
 
   List<Vector3> SmoothNormals(Mesh mesh) {
 
-    // Group vertices by location
-    var groups = mesh.vertices.Select((vertex, index) => new KeyValuePair<Vector3, int>(vertex, index)).GroupBy(pair => pair.Key);
+    // Group vertices by location (rounded to handle floating-point precision issues)
+    var groups = mesh.vertices.Select((vertex, index) => new KeyValuePair<Vector3, int>(vertex, index)).GroupBy(pair => new Vector3(
+      Mathf.Round(pair.Key.x * 10000f) / 10000f,
+      Mathf.Round(pair.Key.y * 10000f) / 10000f,
+      Mathf.Round(pair.Key.z * 10000f) / 10000f
+    ));
 
     // Copy normals to a new list
     var smoothNormals = new List<Vector3>(mesh.normals);

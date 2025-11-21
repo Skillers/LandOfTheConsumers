@@ -21,7 +21,10 @@ public class PlayerController : NetworkBehaviour
     public Vector3 clickMoveTarget; // Made public so indicator can access it
     public bool isMovingToTarget = false; // Made public so indicator can access it
     private float clickMoveStopDistance = 0.5f;
-    
+
+    [Header("Stick Counter")]
+    private NetworkVariable<int> stickCount = new NetworkVariable<int>(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
     private Vector3 velocity;
     private bool isGrounded;
     
@@ -33,22 +36,36 @@ public class PlayerController : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
-        
+
+        // Subscribe to stick count changes to log them
+        stickCount.OnValueChanged += OnStickCountChanged;
+
         // Only setup camera for YOUR player (the one you control)
         if (IsOwner)
         {
             if (cameraManager == null)
                 cameraManager = FindObjectOfType<CameraManager>();
-            
+
             if (cameraManager != null)
                 cameraManager.player = transform;
-            
+
             Debug.Log($"Local player spawned - ClientId: {OwnerClientId}");
         }
         else
         {
             Debug.Log($"Remote player spawned - ClientId: {OwnerClientId}");
         }
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        base.OnNetworkDespawn();
+        stickCount.OnValueChanged -= OnStickCountChanged;
+    }
+
+    void OnStickCountChanged(int oldValue, int newValue)
+    {
+        Debug.Log($"[PlayerController] Player {OwnerClientId} stick count changed: {oldValue} -> {newValue}");
     }
     
     void Update()
@@ -266,5 +283,45 @@ public class PlayerController : NetworkBehaviour
     {
         // Server executes the rotation with lerp
         transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, 0.2f);
+    }
+
+    // Public method to get stick count (can be called by anyone)
+    public int GetStickCount()
+    {
+        return stickCount.Value;
+    }
+
+    // Server-only method to increment stick count
+    public void AddStick()
+    {
+        if (IsServer)
+        {
+            stickCount.Value++;
+            Debug.Log($"[PlayerController] Server incremented stick count for player {OwnerClientId} to {stickCount.Value}");
+        }
+        else
+        {
+            Debug.LogError("[PlayerController] AddStick() called on client! This should only be called on server.");
+        }
+    }
+
+    // Server-only method to remove a stick
+    public bool RemoveStick()
+    {
+        if (!IsServer)
+        {
+            Debug.LogError("[PlayerController] RemoveStick() called on client! This should only be called on server.");
+            return false;
+        }
+
+        if (stickCount.Value < 1)
+        {
+            Debug.LogWarning($"[PlayerController] Cannot remove stick - player {OwnerClientId} has no sticks!");
+            return false;
+        }
+
+        stickCount.Value--;
+        Debug.Log($"[PlayerController] Server decremented stick count for player {OwnerClientId} to {stickCount.Value}");
+        return true;
     }
 }

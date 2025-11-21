@@ -1,6 +1,7 @@
 using UnityEngine;
+using Unity.Netcode;
 
-public class EnergyBeam : MonoBehaviour
+public class EnergyBeam : NetworkBehaviour
 {
     [Header("Beam Settings")]
     public float beamHeight = 100f;
@@ -22,8 +23,15 @@ public class EnergyBeam : MonoBehaviour
     public float maxPulseScale = 1.2f;
 
     [Header("Interaction")]
-    public float interactionRange = 10f;
+    public float interactionRange = 5f;
     public LayerMask beamLayer;
+
+    [Header("Energy System")]
+    public float maxEnergy = 100f;
+    public float startingEnergy = 10f;
+    public float energyDecayRate = 1f / 30f; // 1 energy per 30 seconds
+    public float stickEnergyValue = 0.25f;
+    private NetworkVariable<float> currentEnergy = new NetworkVariable<float>(0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
     [Header("Particles")]
     public bool enableParticles = true;
@@ -77,6 +85,16 @@ public class EnergyBeam : MonoBehaviour
         }
     }
 
+    void Awake()
+    {
+        // Ensure this GameObject has a NetworkObject component
+        if (GetComponent<NetworkObject>() == null)
+        {
+            NetworkObject netObj = gameObject.AddComponent<NetworkObject>();
+            Debug.Log("[EnergyBeam] Added NetworkObject component to beam");
+        }
+    }
+
     void Start()
     {
         CreateBeam();
@@ -91,6 +109,32 @@ public class EnergyBeam : MonoBehaviour
         {
             outline.enabled = false;
         }
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+
+        // Initialize energy on server
+        if (IsServer)
+        {
+            currentEnergy.Value = startingEnergy;
+            Debug.Log($"[EnergyBeam] Server initialized energy to {startingEnergy}");
+        }
+
+        // Subscribe to energy changes
+        currentEnergy.OnValueChanged += OnEnergyChanged;
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        base.OnNetworkDespawn();
+        currentEnergy.OnValueChanged -= OnEnergyChanged;
+    }
+
+    void OnEnergyChanged(float oldValue, float newValue)
+    {
+        Debug.Log($"[EnergyBeam] Energy changed: {oldValue:F2} -> {newValue:F2}");
     }
 
     void AddCollider()
@@ -308,6 +352,12 @@ public class EnergyBeam : MonoBehaviour
         if (beamMesh == null)
             return;
 
+        // Server handles energy decay
+        if (IsServer)
+        {
+            UpdateEnergyDecay();
+        }
+
         // Update outline visibility based on camera mode and raycast
         UpdateOutlineVisibility();
 
@@ -387,6 +437,12 @@ public class EnergyBeam : MonoBehaviour
                         isBeingInteracted = false;
                     }
 
+                    // Check for E key press down to hand in stick
+                    if (Input.GetKeyDown(KeyCode.E))
+                    {
+                        TryHandInStickAsPlayer();
+                    }
+
                     // Restore any hoverable object since we're not hovering it anymore
                     RestoreHoverableObjectColor();
                 }
@@ -444,6 +500,12 @@ public class EnergyBeam : MonoBehaviour
                     else
                     {
                         isBeingInteracted = false;
+                    }
+
+                    // Check for mouse click down to hand in stick
+                    if (Input.GetMouseButtonDown(0))
+                    {
+                        TryHandInStickAsPlayer();
                     }
 
                     // Restore any hoverable object since we're not hovering it anymore
@@ -650,6 +712,133 @@ public class EnergyBeam : MonoBehaviour
             var shape = particles.shape;
             float spawnRadius = beamRadius * 0.4f;
             shape.scale = new Vector3(spawnRadius * 2f, maxSpawnHeight - minSpawnHeight, spawnRadius * 2f);
+        }
+    }
+
+    // === ENERGY SYSTEM METHODS ===
+
+    void UpdateEnergyDecay()
+    {
+        // Decay energy over time
+        if (currentEnergy.Value > 0)
+        {
+            currentEnergy.Value = Mathf.Max(0f, currentEnergy.Value - energyDecayRate * Time.deltaTime);
+        }
+    }
+
+    public float GetCurrentEnergy()
+    {
+        return currentEnergy.Value;
+    }
+
+    public float GetMaxEnergy()
+    {
+        return maxEnergy;
+    }
+
+    // Server-only method to add energy from a stick
+    public bool TryHandInStick(PlayerController player)
+    {
+        if (!IsServer)
+        {
+            Debug.LogError("[EnergyBeam] TryHandInStick called on client! This should only be called on server.");
+            return false;
+        }
+
+        // Check if player has at least 1 stick
+        if (player.GetStickCount() < 1)
+        {
+            Debug.LogWarning($"[EnergyBeam] Player {player.OwnerClientId} tried to hand in stick but has none!");
+            return false;
+        }
+
+        // Check if we can accept more energy
+        if (currentEnergy.Value >= maxEnergy)
+        {
+            Debug.LogWarning($"[EnergyBeam] Energy is at max ({maxEnergy}), cannot accept more sticks!");
+            return false;
+        }
+
+        // Add energy from the stick
+        currentEnergy.Value = Mathf.Min(maxEnergy, currentEnergy.Value + stickEnergyValue);
+        Debug.Log($"[EnergyBeam] Player {player.OwnerClientId} handed in stick. Energy: {currentEnergy.Value:F2}/{maxEnergy}");
+
+        return true;
+    }
+
+    void TryHandInStickAsPlayer()
+    {
+        // Find local player
+        PlayerController localPlayer = null;
+        PlayerController[] players = FindObjectsOfType<PlayerController>();
+        foreach (PlayerController player in players)
+        {
+            if (player.IsOwner)
+            {
+                localPlayer = player;
+                break;
+            }
+        }
+
+        if (localPlayer == null)
+        {
+            Debug.LogWarning("[EnergyBeam] Cannot hand in stick - no local player found!");
+            return;
+        }
+
+        // Check if player has at least 1 stick
+        if (localPlayer.GetStickCount() < 1)
+        {
+            Debug.Log("[EnergyBeam] Cannot hand in stick - you don't have any sticks!");
+            return;
+        }
+
+        // Check if we're in range
+        if (!IsInRange(localPlayer.transform.position))
+        {
+            Debug.Log("[EnergyBeam] Cannot hand in stick - too far from core!");
+            return;
+        }
+
+        // Get the player's NetworkObject to send to server
+        if (localPlayer.TryGetComponent<NetworkObject>(out NetworkObject playerNetObj))
+        {
+            Debug.Log($"[EnergyBeam] Player clicking to hand in stick. NetworkObjectId: {playerNetObj.NetworkObjectId}");
+            RequestHandInStickServerRpc(playerNetObj.NetworkObjectId);
+        }
+        else
+        {
+            Debug.LogError("[EnergyBeam] Local player doesn't have NetworkObject!");
+        }
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    public void RequestHandInStickServerRpc(ulong playerNetworkObjectId)
+    {
+        Debug.Log($"[EnergyBeam] Received hand-in request from player NetworkObjectId: {playerNetworkObjectId}");
+
+        // Find the player's NetworkObject
+        if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(playerNetworkObjectId, out NetworkObject playerNetObj))
+        {
+            PlayerController playerController = playerNetObj.GetComponent<PlayerController>();
+            if (playerController != null)
+            {
+                // Try to hand in the stick
+                if (TryHandInStick(playerController))
+                {
+                    // Success! Remove one stick from player
+                    playerController.RemoveStick();
+                    Debug.Log($"[EnergyBeam] Successfully processed stick hand-in from player {playerController.OwnerClientId}");
+                }
+            }
+            else
+            {
+                Debug.LogError("[EnergyBeam] Player NetworkObject found but no PlayerController component!");
+            }
+        }
+        else
+        {
+            Debug.LogError($"[EnergyBeam] Could not find player with NetworkObjectId: {playerNetworkObjectId}");
         }
     }
 }
