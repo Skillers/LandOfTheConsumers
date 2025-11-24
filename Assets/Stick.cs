@@ -135,11 +135,7 @@ public class Stick : NetworkBehaviour
                         isBeingInteracted = false;
                     }
 
-                    // Check for E key press down to pick up
-                    if (Input.GetKeyDown(KeyCode.E))
-                    {
-                        TryPickup();
-                    }
+                    // E key handling is now done by PlayerController's interaction system
                 }
             }
             else
@@ -171,11 +167,7 @@ public class Stick : NetworkBehaviour
                         isBeingInteracted = false;
                     }
 
-                    // Check for mouse click down to pick up
-                    if (Input.GetMouseButtonDown(0))
-                    {
-                        TryPickup();
-                    }
+                    // Click handling is now done by PlayerController's interaction system
                 }
             }
             else
@@ -205,32 +197,31 @@ public class Stick : NetworkBehaviour
         }
     }
 
-    void TryPickup()
+    // Public method called by PlayerController's interaction system
+    public void Interact(PlayerController playerController)
     {
-        // Check if we have a player reference
-        if (player == null)
+        if (playerController == null)
         {
-            Debug.LogWarning("[Stick] Cannot pick up - no player found!");
+            Debug.LogWarning("[Stick] Cannot pick up - no player controller provided!");
             return;
         }
 
-        // Check distance to player
-        float distance = Vector3.Distance(transform.position, player.position);
+        // Check distance to player (safety check, PlayerController should already verify this)
+        float distance = Vector3.Distance(transform.position, playerController.transform.position);
 
         if (distance <= pickupRange)
         {
-            Debug.Log($"[Stick] Picked up! Distance: {distance:F2}");
+            Debug.Log($"[Stick] Picked up by {playerController.OwnerClientId}! Distance: {distance:F2}");
 
             // Get the player's NetworkObject to identify them to the server
-            PlayerController playerController = player.GetComponent<PlayerController>();
-            if (playerController != null && playerController.TryGetComponent<NetworkObject>(out NetworkObject playerNetObj))
+            if (playerController.TryGetComponent<NetworkObject>(out NetworkObject playerNetObj))
             {
                 // Request server to process pickup with player identification
                 RequestPickupServerRpc(playerNetObj.NetworkObjectId);
             }
             else
             {
-                Debug.LogError("[Stick] Player doesn't have PlayerController or NetworkObject!");
+                Debug.LogError("[Stick] Player doesn't have NetworkObject!");
             }
         }
         else

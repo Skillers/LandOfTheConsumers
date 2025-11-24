@@ -7,6 +7,7 @@ TagManager:
   - EnergyBeam
   - Color
   - Hoverable
+  - Interactable
   layers:
   - Default
   - TransparentFX

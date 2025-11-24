@@ -39,7 +39,8 @@ public class CameraManager : MonoBehaviour
     
     private Vector3 targetPosition;
     private Quaternion targetRotation;
-    
+    private bool isTransitioning = false;
+
     void Start()
     {
         if (mainCamera == null)
@@ -81,15 +82,9 @@ public class CameraManager : MonoBehaviour
         }
         
         // Apply camera position and rotation
-        if (currentMode == CameraMode.ThirdPerson)
+        if (isTransitioning || currentMode == CameraMode.Isometric)
         {
-            // Instant follow for third person
-            mainCamera.transform.position = targetPosition;
-            mainCamera.transform.rotation = targetRotation;
-        }
-        else
-        {
-            // Smooth transition for isometric mode
+            // Smooth transition when switching modes or in isometric mode
             mainCamera.transform.position = Vector3.Lerp(
                 mainCamera.transform.position,
                 targetPosition,
@@ -100,15 +95,37 @@ public class CameraManager : MonoBehaviour
                 targetRotation,
                 Time.deltaTime * transitionSpeed
             );
+
+            // Check if transition to third person is complete (camera reached target)
+            if (isTransitioning && currentMode == CameraMode.ThirdPerson)
+            {
+                float positionDiff = Vector3.Distance(mainCamera.transform.position, targetPosition);
+                float rotationDiff = Quaternion.Angle(mainCamera.transform.rotation, targetRotation);
+
+                // End transition when camera is very close to target
+                if (positionDiff < 0.01f && rotationDiff < 0.5f)
+                {
+                    isTransitioning = false;
+                }
+            }
+        }
+        else
+        {
+            // Instant follow for third person (after transition completes)
+            mainCamera.transform.position = targetPosition;
+            mainCamera.transform.rotation = targetRotation;
         }
     }
     
     void ToggleCameraMode()
     {
-        currentMode = (currentMode == CameraMode.ThirdPerson) 
-            ? CameraMode.Isometric 
+        currentMode = (currentMode == CameraMode.ThirdPerson)
+            ? CameraMode.Isometric
             : CameraMode.ThirdPerson;
-            
+
+        // Start smooth transition
+        isTransitioning = true;
+
         if (currentMode == CameraMode.ThirdPerson)
         {
             Cursor.lockState = CursorLockMode.Locked;

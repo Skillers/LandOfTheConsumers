@@ -23,7 +23,7 @@ public class EnergyBeam : NetworkBehaviour
     public float maxPulseScale = 1.2f;
 
     [Header("Interaction")]
-    public float interactionRange = 5f;
+    public float interactionRange = 3f;
     public LayerMask beamLayer;
 
     [Header("Energy System")]
@@ -437,11 +437,7 @@ public class EnergyBeam : NetworkBehaviour
                         isBeingInteracted = false;
                     }
 
-                    // Check for E key press down to hand in stick
-                    if (Input.GetKeyDown(KeyCode.E))
-                    {
-                        TryHandInStickAsPlayer();
-                    }
+                    // E key handling is now done by PlayerController's interaction system
 
                     // Restore any hoverable object since we're not hovering it anymore
                     RestoreHoverableObjectColor();
@@ -451,16 +447,6 @@ public class EnergyBeam : NetworkBehaviour
                 {
                     // Don't show outline for hoverable objects, only for the beam
                     shouldShowOutline = false;
-
-                    // Check for E key press to interact
-                    if (Input.GetKey(KeyCode.E))
-                    {
-                        isBeingInteracted = true;
-                    }
-                    else
-                    {
-                        isBeingInteracted = false;
-                    }
 
                     // Handle color change for hoverable object
                     HandleHoverableObjectColor(hit.collider.gameObject);
@@ -502,11 +488,7 @@ public class EnergyBeam : NetworkBehaviour
                         isBeingInteracted = false;
                     }
 
-                    // Check for mouse click down to hand in stick
-                    if (Input.GetMouseButtonDown(0))
-                    {
-                        TryHandInStickAsPlayer();
-                    }
+                    // Click handling is now done by PlayerController's interaction system
 
                     // Restore any hoverable object since we're not hovering it anymore
                     RestoreHoverableObjectColor();
@@ -766,49 +748,38 @@ public class EnergyBeam : NetworkBehaviour
         return true;
     }
 
-    void TryHandInStickAsPlayer()
+    // Public method called by PlayerController's interaction system
+    public void InteractWithPlayer(PlayerController playerController)
     {
-        // Find local player
-        PlayerController localPlayer = null;
-        PlayerController[] players = FindObjectsOfType<PlayerController>();
-        foreach (PlayerController player in players)
+        if (playerController == null)
         {
-            if (player.IsOwner)
-            {
-                localPlayer = player;
-                break;
-            }
-        }
-
-        if (localPlayer == null)
-        {
-            Debug.LogWarning("[EnergyBeam] Cannot hand in stick - no local player found!");
+            Debug.LogWarning("[EnergyBeam] Cannot interact - no player controller provided!");
             return;
         }
 
         // Check if player has at least 1 stick
-        if (localPlayer.GetStickCount() < 1)
+        if (playerController.GetStickCount() < 1)
         {
             Debug.Log("[EnergyBeam] Cannot hand in stick - you don't have any sticks!");
             return;
         }
 
-        // Check if we're in range
-        if (!IsInRange(localPlayer.transform.position))
+        // Check if we're in range (safety check, PlayerController should already verify this)
+        if (!IsInRange(playerController.transform.position))
         {
             Debug.Log("[EnergyBeam] Cannot hand in stick - too far from core!");
             return;
         }
 
         // Get the player's NetworkObject to send to server
-        if (localPlayer.TryGetComponent<NetworkObject>(out NetworkObject playerNetObj))
+        if (playerController.TryGetComponent<NetworkObject>(out NetworkObject playerNetObj))
         {
-            Debug.Log($"[EnergyBeam] Player clicking to hand in stick. NetworkObjectId: {playerNetObj.NetworkObjectId}");
+            Debug.Log($"[EnergyBeam] Player {playerController.OwnerClientId} handing in stick. NetworkObjectId: {playerNetObj.NetworkObjectId}");
             RequestHandInStickServerRpc(playerNetObj.NetworkObjectId);
         }
         else
         {
-            Debug.LogError("[EnergyBeam] Local player doesn't have NetworkObject!");
+            Debug.LogError("[EnergyBeam] Player doesn't have NetworkObject!");
         }
     }
 

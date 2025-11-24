@@ -22,6 +22,11 @@ public class PlayerController : NetworkBehaviour
     public bool isMovingToTarget = false; // Made public so indicator can access it
     private float clickMoveStopDistance = 0.5f;
 
+    [Header("Interaction System")]
+    public float defaultInteractionRange = 3f;
+    private GameObject pendingInteractionTarget;
+    private float pendingInteractionRange;
+
     [Header("Stick Counter")]
     private NetworkVariable<int> stickCount = new NetworkVariable<int>(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
@@ -115,74 +120,195 @@ public class PlayerController : NetworkBehaviour
         // WASD movement only in third person
         float horizontal = Input.GetAxis("Horizontal");
         float vertical = Input.GetAxis("Vertical");
-        
+
         // Debug input
         if (horizontal != 0 || vertical != 0)
         {
             Debug.Log($"ClientId {OwnerClientId} - Input detected: H={horizontal}, V={vertical}");
         }
-        
+
         Vector3 cameraForward = cameraManager.GetCameraForward();
         cameraForward.y = 0;
         cameraForward.Normalize();
-        
+
         Vector3 cameraRight = Quaternion.Euler(0, 90, 0) * cameraForward;
-        
+
         Vector3 moveDirection = (cameraForward * vertical + cameraRight * horizontal).normalized;
-        
+
         if (moveDirection.magnitude >= 0.1f)
         {
             float currentSpeed = Input.GetKey(KeyCode.LeftShift) ? runSpeed : walkSpeed;
             Vector3 movement = moveDirection * currentSpeed * Time.deltaTime;
-            
+
             // Tell the server to move us
             MoveServerRpc(movement);
-            
+
             Debug.Log($"ClientId {OwnerClientId} - Requesting move! Direction: {moveDirection}");
-            
+
             // Rotate player to face movement direction
             Quaternion targetRotation = Quaternion.LookRotation(moveDirection);
-            
+
             // Tell server to rotate us
             RotateServerRpc(targetRotation);
         }
-        
+
         // Jump
         if (Input.GetButtonDown("Jump") && isGrounded)
         {
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+        }
+
+        // E key interaction in third person mode
+        if (Input.GetKeyDown(KeyCode.E))
+        {
+            TryThirdPersonInteraction();
+        }
+    }
+
+    void TryThirdPersonInteraction()
+    {
+        Camera mainCamera = Camera.main;
+        if (mainCamera == null) return;
+
+        // Raycast from screen center
+        Ray ray = mainCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0));
+        RaycastHit hit;
+
+        if (Physics.Raycast(ray, out hit, 100f))
+        {
+            GameObject interactTarget = null;
+            float interactionRange = defaultInteractionRange;
+
+            // Check for Stick
+            Stick stick = hit.collider.GetComponent<Stick>();
+            if (stick != null)
+            {
+                interactTarget = hit.collider.gameObject;
+                interactionRange = stick.pickupRange;
+            }
+            // Check for EnergyBeam
+            else
+            {
+                EnergyBeam beam = hit.collider.GetComponentInParent<EnergyBeam>();
+                if (beam != null)
+                {
+                    interactTarget = beam.gameObject;
+                    interactionRange = beam.interactionRange;
+                }
+            }
+            // Check for Interactable tag
+            if (interactTarget == null && hit.collider.CompareTag("Interactable"))
+            {
+                interactTarget = hit.collider.gameObject;
+            }
+
+            // Try to interact if we found something
+            if (interactTarget != null)
+            {
+                float distanceToTarget = Vector3.Distance(transform.position, interactTarget.transform.position);
+                if (distanceToTarget <= interactionRange)
+                {
+                    Debug.Log($"[PlayerController] Third-person interaction with {interactTarget.name}");
+                    ExecuteInteraction(interactTarget);
+                }
+                else
+                {
+                    Debug.Log($"[PlayerController] Too far to interact ({distanceToTarget:F1}/{interactionRange})");
+                }
+            }
         }
     }
     
     void HandleIsometricMovement()
     {
         // Click-to-move only in isometric mode
-        if (Input.GetMouseButton(0)) // Left click (hold or click)
+        if (Input.GetMouseButtonDown(0)) // Left click down (single click, not hold)
         {
             Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
             RaycastHit hit;
 
-            // First check if we're clicking on a hoverable object or beam (without layer mask)
+            // First check if we're clicking on an interactable object (without layer mask)
             if (Physics.Raycast(ray, out hit, 1000f))
             {
-                // If we hit a hoverable object, don't move - just interact with it
+                // Check for interactable objects: Hoverable, Interactable tag, EnergyBeam, or Stick
+                bool isInteractable = false;
+                float interactionRange = defaultInteractionRange;
+                GameObject interactTarget = null;
+
+                // Check for Hoverable tag
                 if (hit.collider.CompareTag("Hoverable"))
                 {
-                    Debug.Log($"[PlayerController] Clicked on hoverable object: {hit.collider.gameObject.name} - not moving");
-                    return; // Don't process movement
+                    isInteractable = true;
+                    interactTarget = hit.collider.gameObject;
+                    Debug.Log($"[PlayerController] Clicked on hoverable: {interactTarget.name}");
+                }
+                // Check for Interactable tag (for Sticks and other interactables)
+                else if (hit.collider.CompareTag("Interactable"))
+                {
+                    isInteractable = true;
+                    interactTarget = hit.collider.gameObject;
+                    // Get range from Stick component if available
+                    Stick stick = hit.collider.GetComponent<Stick>();
+                    if (stick != null)
+                    {
+                        interactionRange = stick.pickupRange;
+                    }
+                    Debug.Log($"[PlayerController] Clicked on interactable: {interactTarget.name}");
+                }
+                // Check for EnergyBeam
+                else
+                {
+                    EnergyBeam beam = hit.collider.GetComponentInParent<EnergyBeam>();
+                    if (beam != null)
+                    {
+                        isInteractable = true;
+                        interactTarget = beam.gameObject;
+                        interactionRange = beam.interactionRange;
+                        Debug.Log($"[PlayerController] Clicked on beam: {interactTarget.name}");
+                    }
                 }
 
-                // If we hit a beam (EnergyBeam), don't move - just interact with it
-                if (hit.collider.GetComponentInParent<EnergyBeam>() != null)
+                // Handle interactable click
+                if (isInteractable && interactTarget != null)
                 {
-                    Debug.Log($"[PlayerController] Clicked on beam: {hit.collider.gameObject.name} - not moving");
-                    return; // Don't process movement
+                    float distanceToTarget = Vector3.Distance(transform.position, interactTarget.transform.position);
+
+                    if (distanceToTarget <= interactionRange)
+                    {
+                        // In range - interact immediately
+                        Debug.Log($"[PlayerController] In range ({distanceToTarget:F1}/{interactionRange}) - interacting immediately");
+                        ExecuteInteraction(interactTarget);
+                    }
+                    else
+                    {
+                        // Out of range - move toward it and queue interaction
+                        Debug.Log($"[PlayerController] Out of range ({distanceToTarget:F1}/{interactionRange}) - moving to interact");
+                        pendingInteractionTarget = interactTarget;
+                        pendingInteractionRange = interactionRange;
+
+                        // Set movement target to a point near the interactable (stop well inside interaction range)
+                        Vector3 directionToTarget = (interactTarget.transform.position - transform.position).normalized;
+                        float stopDistance = interactionRange * 0.4f; // Stop at 40% of interaction range (closer to object)
+                        clickMoveTarget = interactTarget.transform.position - directionToTarget * stopDistance;
+                        clickMoveTarget.y = transform.position.y; // Keep same Y level
+                        isMovingToTarget = true;
+
+                        if (clickMarker != null)
+                        {
+                            clickMarker.SetActive(true);
+                            clickMarker.transform.position = clickMoveTarget + Vector3.up * 0.1f;
+                        }
+                    }
+                    return; // Don't process ground movement
                 }
             }
 
-            // Now check for ground to move to (with layer mask)
+            // Not an interactable - check for ground to move to (with layer mask)
             if (Physics.Raycast(ray, out hit, 1000f, groundLayer))
             {
+                // Clear any pending interaction since we're clicking elsewhere
+                pendingInteractionTarget = null;
+
                 clickMoveTarget = hit.point;
                 isMovingToTarget = true;
 
@@ -193,32 +319,80 @@ public class PlayerController : NetworkBehaviour
                 }
             }
         }
-        
+
         // Move towards click target
         if (isMovingToTarget)
         {
             MoveToClickTarget();
         }
     }
+
+    void ExecuteInteraction(GameObject target)
+    {
+        if (target == null) return;
+
+        // Try Stick interaction
+        Stick stick = target.GetComponent<Stick>();
+        if (stick != null)
+        {
+            stick.Interact(this);
+            return;
+        }
+
+        // Try EnergyBeam interaction
+        EnergyBeam beam = target.GetComponentInParent<EnergyBeam>();
+        if (beam != null)
+        {
+            beam.InteractWithPlayer(this);
+            return;
+        }
+
+        // Generic hoverable interaction (you can expand this)
+        Debug.Log($"[PlayerController] Interacted with: {target.name}");
+    }
     
     void MoveToClickTarget()
     {
+        // Check if pending interaction target was destroyed (e.g., another player picked up the stick)
+        if (pendingInteractionTarget == null && isMovingToTarget)
+        {
+            // Target gone - check if we were moving to interact with something
+            // If so, just continue to destination or stop
+        }
+
+        // If we have a pending interaction, check if we're in range yet
+        if (pendingInteractionTarget != null)
+        {
+            float distanceToInteractable = Vector3.Distance(transform.position, pendingInteractionTarget.transform.position);
+            if (distanceToInteractable <= pendingInteractionRange)
+            {
+                // We're in range! Execute the interaction
+                Debug.Log($"[PlayerController] Arrived in range - executing pending interaction with {pendingInteractionTarget.name}");
+                ExecuteInteraction(pendingInteractionTarget);
+                pendingInteractionTarget = null;
+                isMovingToTarget = false;
+                if (clickMarker != null)
+                    clickMarker.SetActive(false);
+                return;
+            }
+        }
+
         Vector3 direction = clickMoveTarget - transform.position;
         direction.y = 0;
-        
+
         float distance = direction.magnitude;
-        
+
         if (distance > clickMoveStopDistance)
         {
             direction.Normalize();
-            
+
             // Use run speed if shift is held, otherwise walk
             float currentSpeed = Input.GetKey(KeyCode.LeftShift) ? runSpeed : walkSpeed;
             Vector3 movement = direction * currentSpeed * Time.deltaTime;
-            
+
             // Tell the server to move us
             MoveServerRpc(movement);
-            
+
             // Rotate player to face movement direction
             Quaternion targetRotation = Quaternion.LookRotation(direction);
             RotateServerRpc(targetRotation);
@@ -229,6 +403,22 @@ public class PlayerController : NetworkBehaviour
             isMovingToTarget = false;
             if (clickMarker != null)
                 clickMarker.SetActive(false);
+
+            // Execute pending interaction if we have one (fallback in case range check didn't trigger)
+            if (pendingInteractionTarget != null)
+            {
+                float distanceToInteractable = Vector3.Distance(transform.position, pendingInteractionTarget.transform.position);
+                if (distanceToInteractable <= pendingInteractionRange)
+                {
+                    Debug.Log($"[PlayerController] At destination - executing pending interaction with {pendingInteractionTarget.name}");
+                    ExecuteInteraction(pendingInteractionTarget);
+                }
+                else
+                {
+                    Debug.Log($"[PlayerController] Reached destination but still out of range ({distanceToInteractable:F1}/{pendingInteractionRange})");
+                }
+                pendingInteractionTarget = null;
+            }
         }
     }
     
