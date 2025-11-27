@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(git -C \"D:\\Repos\\LandOfTheConsumers\" log --all --grep=\"AI\\|generation\\|procedural\\|model\" --oneline)",
+      "Bash(git -C \"D:\\Repos\\LandOfTheConsumers\" log --oneline)",
+      "Bash(cat:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []
