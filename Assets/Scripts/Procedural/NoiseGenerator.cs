@@ -4,7 +4,7 @@ namespace LandOfTheConsumers.Procedural
 {
     public static class NoiseGenerator
     {
-        private static readonly int[] permutation = {
+        private static readonly int[] basePermutation = {
             151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,
             8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,
             35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,74,165,71,
@@ -19,18 +19,35 @@ namespace LandOfTheConsumers.Procedural
             138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180
         };
 
-        private static readonly int[] p;
-
-        static NoiseGenerator()
+        private static int[] CreatePermutationTable(int seed)
         {
-            p = new int[512];
+            int[] permutation = new int[256];
+            for (int i = 0; i < 256; i++)
+            {
+                permutation[i] = i;
+            }
+
+            // Shuffle using seed
+            System.Random random = new System.Random(seed);
+            for (int i = 255; i > 0; i--)
+            {
+                int swapIndex = random.Next(0, i + 1);
+                int temp = permutation[i];
+                permutation[i] = permutation[swapIndex];
+                permutation[swapIndex] = temp;
+            }
+
+            // Create 512-length table
+            int[] p = new int[512];
             for (int i = 0; i < 512; i++)
             {
                 p[i] = permutation[i % 256];
             }
+
+            return p;
         }
 
-        public static float Get3DPerlin(float x, float y, float z)
+        private static float Get3DPerlin(float x, float y, float z, int[] p)
         {
             int xi = Mathf.FloorToInt(x) & 255;
             int yi = Mathf.FloorToInt(y) & 255;
@@ -64,23 +81,26 @@ namespace LandOfTheConsumers.Procedural
             return Mathf.Lerp(y1, y2, w);
         }
 
-        public static float GetFractalNoise(float x, float y, float z, int octaves, float frequency, float amplitude, float lacunarity, float persistence)
+        public static float GetFractalNoise(float x, float y, float z, int octaves, float frequency, float amplitude, float lacunarity, float persistence, int seed)
         {
+            int[] p = CreatePermutationTable(seed);
+
             float total = 0f;
             float maxValue = 0f;
-            float currentAmplitude = amplitude;
+            float currentAmplitude = 1f; // Start at 1 for normalization
             float currentFrequency = frequency;
 
             for (int i = 0; i < octaves; i++)
             {
-                total += Get3DPerlin(x * currentFrequency, y * currentFrequency, z * currentFrequency) * currentAmplitude;
+                total += Get3DPerlin(x * currentFrequency, y * currentFrequency, z * currentFrequency, p) * currentAmplitude;
                 maxValue += currentAmplitude;
 
                 currentAmplitude *= persistence;
                 currentFrequency *= lacunarity;
             }
 
-            return total / maxValue;
+            // Normalize to -1 to 1 range, then apply amplitude
+            return (total / maxValue) * amplitude;
         }
 
         private static float Fade(float t)

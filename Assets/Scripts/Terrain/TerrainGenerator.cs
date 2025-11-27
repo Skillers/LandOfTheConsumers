@@ -12,6 +12,14 @@ namespace LandOfTheConsumers.Terrain
         [Tooltip("Material to apply to all terrain chunks. Use a solid color material for testing.")]
         [SerializeField] public Material terrainMaterial;
 
+        [Tooltip("SEED - Random seed for terrain generation\n\n" +
+                 "EFFECT: Same seed + same settings = identical terrain every time\n" +
+                 "• Change seed = completely different terrain\n" +
+                 "• Use 0 for random seed each time\n" +
+                 "• Share seed with others to generate the same world\n\n" +
+                 "VISUAL: Acts like a 'world ID' for reproducible terrain")]
+        [SerializeField] public int seed = 12345;
+
         [Header("Noise Settings - Multi-Level Detail")]
         [Tooltip("OCTAVES - Adds detail layers to terrain\n\n" +
                  "EFFECT: Controls how detailed and natural the terrain looks\n" +
@@ -35,13 +43,13 @@ namespace LandOfTheConsumers.Terrain
 
         [Tooltip("AMPLITUDE - Controls the strength of the noise effect\n\n" +
                  "EFFECT: How much the noise affects terrain shape\n" +
-                 "• 0.1-0.5 = Subtle variation, mostly flat\n" +
-                 "• 0.6-1.2 = Moderate variation, normal terrain\n" +
-                 "• 1.3-2.0 = Strong variation, dramatic landscape\n" +
-                 "• 2.0-3.0 = Extreme variation, wild terrain\n\n" +
+                 "• 1-3 = Subtle variation, mostly flat\n" +
+                 "• 4-7 = Moderate variation, normal terrain\n" +
+                 "• 8-12 = Strong variation, dramatic landscape\n" +
+                 "• 13-20 = Extreme variation, wild terrain\n\n" +
                  "VISUAL: Higher amplitude = more dramatic height differences\n" +
                  "Works together with Height Multiplier")]
-        [SerializeField] [Range(0.1f, 3f)] public float amplitude = 1f;
+        [SerializeField] [Range(0.1f, 20f)] public float amplitude = 5f;
 
         [Tooltip("LACUNARITY - Detail size multiplier between layers\n\n" +
                  "EFFECT: How much each detail layer differs in size from the previous\n" +
@@ -67,8 +75,15 @@ namespace LandOfTheConsumers.Terrain
         [Tooltip("Base terrain elevation in units. This is the 'sea level' of your terrain. Try: 8-12")]
         [SerializeField] public float groundHeight = 8f;
 
-        [Tooltip("Multiplier for terrain height variation. Higher = taller mountains and deeper valleys. Try: 3-10")]
-        [SerializeField] [Range(1f, 20f)] public float heightMultiplier = 5f;
+        [Tooltip("Multiplier for terrain height variation. Higher = taller mountains and deeper valleys.\n\n" +
+                 "EFFECT: Controls vertical height of terrain features\n" +
+                 "• 10-30 = Gentle rolling hills\n" +
+                 "• 40-80 = Normal mountains and valleys\n" +
+                 "• 90-150 = Tall dramatic mountains\n" +
+                 "• 160-200 = Extreme towering peaks\n" +
+                 "• 200-300 = Massive mountain ranges\n\n" +
+                 "Works with Amplitude - both multiply together for final height")]
+        [SerializeField] [Range(1f, 300f)] public float heightMultiplier = 50f;
 
         [Header("Generation")]
         [Tooltip("Automatically generate terrain when the scene starts")]
@@ -76,6 +91,16 @@ namespace LandOfTheConsumers.Terrain
 
         [Tooltip("Display generation progress messages in the Console window")]
         [SerializeField] public bool showProgressInConsole = true;
+
+        [Tooltip("GENERATE ONE AT A TIME - Show visual progress as each chunk generates\n\n" +
+                 "EFFECT: See each chunk appear one by one instead of all at once\n" +
+                 "• Enabled = Slower but you can watch progress\n" +
+                 "• Disabled = Fast generation, all chunks at once\n\n" +
+                 "Useful for large worlds to see generation progress")]
+        [SerializeField] public bool generateOneAtATime = false;
+
+        [Tooltip("Delay between chunks when generating one at a time (in seconds). Lower = faster.")]
+        [SerializeField] [Range(0.01f, 1f)] public float chunkGenerationDelay = 0.1f;
 
         private Dictionary<Vector3Int, TerrainChunk> chunks = new Dictionary<Vector3Int, TerrainChunk>();
         private GameObject chunksContainer;
@@ -96,6 +121,18 @@ namespace LandOfTheConsumers.Terrain
             chunksContainer = new GameObject("Terrain Chunks");
             chunksContainer.transform.SetParent(transform);
 
+            if (generateOneAtATime)
+            {
+                StartCoroutine(GenerateWorldSequential());
+            }
+            else
+            {
+                GenerateWorldImmediate();
+            }
+        }
+
+        private void GenerateWorldImmediate()
+        {
             int totalChunks = worldSize.x * worldSize.y * worldSize.z;
             int currentChunk = 0;
 
@@ -123,6 +160,38 @@ namespace LandOfTheConsumers.Terrain
             }
         }
 
+        private System.Collections.IEnumerator GenerateWorldSequential()
+        {
+            int totalChunks = worldSize.x * worldSize.y * worldSize.z;
+            int currentChunk = 0;
+
+            for (int x = 0; x < worldSize.x; x++)
+            {
+                for (int y = 0; y < worldSize.y; y++)
+                {
+                    for (int z = 0; z < worldSize.z; z++)
+                    {
+                        Vector3Int chunkPos = new Vector3Int(x, y, z);
+                        GenerateChunk(chunkPos);
+
+                        currentChunk++;
+                        if (showProgressInConsole)
+                        {
+                            Debug.Log($"Generating terrain: {currentChunk}/{totalChunks} chunks");
+                        }
+
+                        // Wait before generating next chunk
+                        yield return new UnityEngine.WaitForSeconds(chunkGenerationDelay);
+                    }
+                }
+            }
+
+            if (showProgressInConsole)
+            {
+                Debug.Log($"Terrain generation complete! Generated {totalChunks} chunks.");
+            }
+        }
+
         private void GenerateChunk(Vector3Int position)
         {
             GameObject chunkObj = new GameObject($"Chunk_{position.x}_{position.y}_{position.z}");
@@ -135,7 +204,7 @@ namespace LandOfTheConsumers.Terrain
 
             TerrainChunk chunk = chunkObj.AddComponent<TerrainChunk>();
 
-            chunk.SetNoiseParameters(octaves, frequency, amplitude, lacunarity, persistence);
+            chunk.SetNoiseParameters(octaves, frequency, amplitude, lacunarity, persistence, seed);
             chunk.SetTerrainShape(groundHeight, heightMultiplier);
 
             chunk.Initialize(position, terrainMaterial);

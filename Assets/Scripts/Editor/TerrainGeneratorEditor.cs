@@ -1,8 +1,29 @@
 using UnityEngine;
 using UnityEditor;
+using System;
+using System.IO;
 
 namespace LandOfTheConsumers.Terrain
 {
+    [System.Serializable]
+    public class TerrainSettings
+    {
+        public string exportDate;
+        public int seed;
+        public int octaves;
+        public float frequency;
+        public float amplitude;
+        public float lacunarity;
+        public float persistence;
+        public float groundHeight;
+        public float heightMultiplier;
+        public int worldSizeX;
+        public int worldSizeY;
+        public int worldSizeZ;
+        public bool generateOneAtATime;
+        public float chunkGenerationDelay;
+    }
+
     [CustomEditor(typeof(TerrainGenerator))]
     public class TerrainGeneratorEditor : Editor
     {
@@ -72,6 +93,42 @@ namespace LandOfTheConsumers.Terrain
             TerrainGenerator generator = (TerrainGenerator)target;
 
             EditorGUILayout.Space(10);
+            EditorGUILayout.LabelField("Seed Controls", EditorStyles.boldLabel);
+
+            EditorGUILayout.BeginHorizontal();
+
+            EditorGUILayout.LabelField($"Current Seed: {generator.seed}", EditorStyles.miniLabel);
+
+            if (GUILayout.Button("🎲 Random Seed", GUILayout.Width(120), GUILayout.Height(20)))
+            {
+                Undo.RecordObject(generator, "Randomize Seed");
+                generator.seed = UnityEngine.Random.Range(1, 999999);
+                EditorUtility.SetDirty(generator);
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(10);
+            EditorGUILayout.LabelField("Export/Import Settings", EditorStyles.boldLabel);
+
+            EditorGUILayout.BeginHorizontal();
+
+            GUI.backgroundColor = new Color(0.5f, 1f, 0.5f);
+            if (GUILayout.Button("📄 Export JSON", GUILayout.Height(25)))
+            {
+                ExportToJSON(generator);
+            }
+
+            GUI.backgroundColor = new Color(0.5f, 0.8f, 1f);
+            if (GUILayout.Button("📂 Import JSON", GUILayout.Height(25)))
+            {
+                ImportFromJSON(generator);
+            }
+
+            GUI.backgroundColor = Color.white;
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(10);
             EditorGUILayout.LabelField("Terrain Controls", EditorStyles.boldLabel);
 
             EditorGUILayout.BeginHorizontal();
@@ -135,9 +192,14 @@ namespace LandOfTheConsumers.Terrain
             EditorPrefs.SetInt(PREFS_PREFIX + "WorldSizeX", generator.worldSize.x);
             EditorPrefs.SetInt(PREFS_PREFIX + "WorldSizeY", generator.worldSize.y);
             EditorPrefs.SetInt(PREFS_PREFIX + "WorldSizeZ", generator.worldSize.z);
+            EditorPrefs.SetInt(PREFS_PREFIX + "Seed", generator.seed);
+
+            // Generation settings
+            EditorPrefs.SetInt(PREFS_PREFIX + "GenerateOneAtATime", generator.generateOneAtATime ? 1 : 0);
+            EditorPrefs.SetFloat(PREFS_PREFIX + "ChunkDelay", generator.chunkGenerationDelay);
 
             Debug.Log("[TerrainGenerator] Settings saved: " +
-                $"Octaves={generator.octaves}, Frequency={generator.frequency:F3}, " +
+                $"Seed={generator.seed}, Octaves={generator.octaves}, Frequency={generator.frequency:F3}, " +
                 $"Amplitude={generator.amplitude:F2}, Lacunarity={generator.lacunarity:F2}, " +
                 $"Persistence={generator.persistence:F2}, GroundHeight={generator.groundHeight:F1}, " +
                 $"HeightMult={generator.heightMultiplier:F1}, WorldSize=({generator.worldSize.x},{generator.worldSize.y},{generator.worldSize.z})");
@@ -152,24 +214,29 @@ namespace LandOfTheConsumers.Terrain
                 // Noise settings
                 generator.octaves = EditorPrefs.GetInt(PREFS_PREFIX + "Octaves", 4);
                 generator.frequency = EditorPrefs.GetFloat(PREFS_PREFIX + "Frequency", 0.05f);
-                generator.amplitude = EditorPrefs.GetFloat(PREFS_PREFIX + "Amplitude", 1f);
+                generator.amplitude = EditorPrefs.GetFloat(PREFS_PREFIX + "Amplitude", 5f);
                 generator.lacunarity = EditorPrefs.GetFloat(PREFS_PREFIX + "Lacunarity", 2f);
                 generator.persistence = EditorPrefs.GetFloat(PREFS_PREFIX + "Persistence", 0.5f);
 
                 // Terrain shape
                 generator.groundHeight = EditorPrefs.GetFloat(PREFS_PREFIX + "GroundHeight", 8f);
-                generator.heightMultiplier = EditorPrefs.GetFloat(PREFS_PREFIX + "HeightMultiplier", 5f);
+                generator.heightMultiplier = EditorPrefs.GetFloat(PREFS_PREFIX + "HeightMultiplier", 50f);
 
                 // World settings
                 int worldX = EditorPrefs.GetInt(PREFS_PREFIX + "WorldSizeX", 4);
                 int worldY = EditorPrefs.GetInt(PREFS_PREFIX + "WorldSizeY", 2);
                 int worldZ = EditorPrefs.GetInt(PREFS_PREFIX + "WorldSizeZ", 4);
                 generator.worldSize = new Vector3Int(worldX, worldY, worldZ);
+                generator.seed = EditorPrefs.GetInt(PREFS_PREFIX + "Seed", 12345);
+
+                // Generation settings
+                generator.generateOneAtATime = EditorPrefs.GetInt(PREFS_PREFIX + "GenerateOneAtATime", 0) == 1;
+                generator.chunkGenerationDelay = EditorPrefs.GetFloat(PREFS_PREFIX + "ChunkDelay", 0.1f);
 
                 EditorUtility.SetDirty(generator);
 
                 Debug.Log("[TerrainGenerator] Settings loaded: " +
-                    $"Octaves={generator.octaves}, Frequency={generator.frequency:F3}, " +
+                    $"Seed={generator.seed}, Octaves={generator.octaves}, Frequency={generator.frequency:F3}, " +
                     $"Amplitude={generator.amplitude:F2}, Lacunarity={generator.lacunarity:F2}, " +
                     $"Persistence={generator.persistence:F2}, GroundHeight={generator.groundHeight:F1}, " +
                     $"HeightMult={generator.heightMultiplier:F1}, WorldSize=({generator.worldSize.x},{generator.worldSize.y},{generator.worldSize.z})");
@@ -179,6 +246,81 @@ namespace LandOfTheConsumers.Terrain
                 EditorUtility.DisplayDialog("No Saved Settings",
                     "No saved settings found. Use 'Save Preset' first.",
                     "OK");
+            }
+        }
+
+        private void ExportToJSON(TerrainGenerator generator)
+        {
+            TerrainSettings settings = new TerrainSettings
+            {
+                exportDate = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"),
+                seed = generator.seed,
+                octaves = generator.octaves,
+                frequency = generator.frequency,
+                amplitude = generator.amplitude,
+                lacunarity = generator.lacunarity,
+                persistence = generator.persistence,
+                groundHeight = generator.groundHeight,
+                heightMultiplier = generator.heightMultiplier,
+                worldSizeX = generator.worldSize.x,
+                worldSizeY = generator.worldSize.y,
+                worldSizeZ = generator.worldSize.z,
+                generateOneAtATime = generator.generateOneAtATime,
+                chunkGenerationDelay = generator.chunkGenerationDelay
+            };
+
+            string json = JsonUtility.ToJson(settings, true);
+            string fileName = $"TerrainSettings_{settings.exportDate}.json";
+            string path = EditorUtility.SaveFilePanel("Export Terrain Settings", Application.dataPath, fileName, "json");
+
+            if (!string.IsNullOrEmpty(path))
+            {
+                File.WriteAllText(path, json);
+                Debug.Log($"[TerrainGenerator] Settings exported to: {path}");
+                EditorUtility.DisplayDialog("Export Successful",
+                    $"Terrain settings exported to:\n{Path.GetFileName(path)}\n\nSeed: {settings.seed}",
+                    "OK");
+            }
+        }
+
+        private void ImportFromJSON(TerrainGenerator generator)
+        {
+            string path = EditorUtility.OpenFilePanel("Import Terrain Settings", Application.dataPath, "json");
+
+            if (!string.IsNullOrEmpty(path))
+            {
+                try
+                {
+                    string json = File.ReadAllText(path);
+                    TerrainSettings settings = JsonUtility.FromJson<TerrainSettings>(json);
+
+                    Undo.RecordObject(generator, "Import Terrain Settings");
+
+                    generator.seed = settings.seed;
+                    generator.octaves = settings.octaves;
+                    generator.frequency = settings.frequency;
+                    generator.amplitude = settings.amplitude;
+                    generator.lacunarity = settings.lacunarity;
+                    generator.persistence = settings.persistence;
+                    generator.groundHeight = settings.groundHeight;
+                    generator.heightMultiplier = settings.heightMultiplier;
+                    generator.worldSize = new Vector3Int(settings.worldSizeX, settings.worldSizeY, settings.worldSizeZ);
+                    generator.generateOneAtATime = settings.generateOneAtATime;
+                    generator.chunkGenerationDelay = settings.chunkGenerationDelay;
+
+                    EditorUtility.SetDirty(generator);
+
+                    Debug.Log($"[TerrainGenerator] Settings imported from: {path}");
+                    EditorUtility.DisplayDialog("Import Successful",
+                        $"Terrain settings imported!\n\nExported: {settings.exportDate}\nSeed: {settings.seed}\n\nClick 'Regenerate' to apply.",
+                        "OK");
+                }
+                catch (Exception e)
+                {
+                    EditorUtility.DisplayDialog("Import Failed",
+                        $"Failed to import settings:\n{e.Message}",
+                        "OK");
+                }
             }
         }
     }

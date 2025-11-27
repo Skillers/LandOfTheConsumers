@@ -39,6 +39,9 @@ namespace LandOfTheConsumers.Terrain
         [Tooltip("Height variation multiplier. Usually inherited from TerrainGenerator.")]
         [SerializeField] private float heightMultiplier = 5f;
 
+        [Tooltip("Seed for random generation. Usually inherited from TerrainGenerator.")]
+        [SerializeField] private int seed = 12345;
+
         private MeshFilter meshFilter;
         private MeshRenderer meshRenderer;
         private MeshCollider meshCollider;
@@ -104,19 +107,25 @@ namespace LandOfTheConsumers.Terrain
                     {
                         Vector3 worldPos = worldOffset + new Vector3(x, y, z) * voxelSize;
 
+                        // Use 2D noise (only X and Z) to prevent floating blobs
+                        // This creates heightmap-style terrain that builds from the ground up
                         float noise = NoiseGenerator.GetFractalNoise(
                             worldPos.x,
                             worldPos.z,
-                            worldPos.y,
+                            0, // No Y component = no floating islands
                             octaves,
                             frequency,
                             amplitude,
                             lacunarity,
-                            persistence
+                            persistence,
+                            seed
                         );
 
+                        // Calculate the terrain height at this XZ position
                         float terrainHeight = groundHeight + noise * heightMultiplier;
 
+                        // Density: positive below terrain surface, negative above
+                        // This ensures terrain only generates from ground up
                         float density = terrainHeight - worldPos.y;
 
                         voxels[x, y, z] = density;
@@ -141,13 +150,14 @@ namespace LandOfTheConsumers.Terrain
             return mesh;
         }
 
-        public void SetNoiseParameters(int octaves, float frequency, float amplitude, float lacunarity, float persistence)
+        public void SetNoiseParameters(int octaves, float frequency, float amplitude, float lacunarity, float persistence, int seed)
         {
             this.octaves = octaves;
             this.frequency = frequency;
             this.amplitude = amplitude;
             this.lacunarity = lacunarity;
             this.persistence = persistence;
+            this.seed = seed;
         }
 
         public void SetTerrainShape(float groundHeight, float heightMultiplier)
