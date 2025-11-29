@@ -9,14 +9,21 @@ namespace LandOfTheConsumers.Terrain
     public class TerrainSettings
     {
         public string exportDate;
+        public BiomeType biomeType;
         public int seed;
         public int octaves;
         public float frequency;
-        public float amplitude;
         public float lacunarity;
         public float persistence;
         public float groundHeight;
         public float heightMultiplier;
+        public float ridgedNoiseBlend;
+        public float domainWarpStrength;
+        public float waterLevel;
+        public bool flattenUnderwater;
+        public bool enablePlateauFlattening;
+        public float plateauHeightThreshold;
+        public float plateauMaxVariation;
         public int worldSizeX;
         public int worldSizeY;
         public int worldSizeZ;
@@ -129,6 +136,27 @@ namespace LandOfTheConsumers.Terrain
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.Space(10);
+            EditorGUILayout.LabelField("Biome Controls", EditorStyles.boldLabel);
+
+            GUI.backgroundColor = new Color(0.7f, 0.5f, 1f);
+            if (GUILayout.Button("🏔️ Apply Biome Preset", GUILayout.Height(30)))
+            {
+                Undo.RecordObject(generator, "Apply Biome Preset");
+                generator.ApplyBiomePreset();
+                EditorUtility.SetDirty(generator);
+            }
+            GUI.backgroundColor = Color.white;
+
+            EditorGUILayout.Space(5);
+            EditorGUILayout.HelpBox(
+                $"Current Biome: {generator.biomeType}\n\n" +
+                "Click 'Apply Biome Preset' to load preset settings for the selected biome type.\n" +
+                "• Basic: Standard rolling hills and mountains\n" +
+                "• Mountain Plateaus: Flat-topped mountains with sharp cliffs",
+                MessageType.Info
+            );
+
+            EditorGUILayout.Space(10);
             EditorGUILayout.LabelField("Terrain Controls", EditorStyles.boldLabel);
 
             EditorGUILayout.BeginHorizontal();
@@ -177,16 +205,27 @@ namespace LandOfTheConsumers.Terrain
 
         private void SaveSettings(TerrainGenerator generator)
         {
+            // Biome settings
+            EditorPrefs.SetInt(PREFS_PREFIX + "BiomeType", (int)generator.biomeType);
+
             // Noise settings
             EditorPrefs.SetInt(PREFS_PREFIX + "Octaves", generator.octaves);
             EditorPrefs.SetFloat(PREFS_PREFIX + "Frequency", generator.frequency);
-            EditorPrefs.SetFloat(PREFS_PREFIX + "Amplitude", generator.amplitude);
             EditorPrefs.SetFloat(PREFS_PREFIX + "Lacunarity", generator.lacunarity);
             EditorPrefs.SetFloat(PREFS_PREFIX + "Persistence", generator.persistence);
 
             // Terrain shape
             EditorPrefs.SetFloat(PREFS_PREFIX + "GroundHeight", generator.groundHeight);
             EditorPrefs.SetFloat(PREFS_PREFIX + "HeightMultiplier", generator.heightMultiplier);
+
+            // Advanced features
+            EditorPrefs.SetFloat(PREFS_PREFIX + "RidgedNoiseBlend", generator.ridgedNoiseBlend);
+            EditorPrefs.SetFloat(PREFS_PREFIX + "DomainWarpStrength", generator.domainWarpStrength);
+            EditorPrefs.SetFloat(PREFS_PREFIX + "WaterLevel", generator.waterLevel);
+            EditorPrefs.SetInt(PREFS_PREFIX + "FlattenUnderwater", generator.flattenUnderwater ? 1 : 0);
+            EditorPrefs.SetInt(PREFS_PREFIX + "EnablePlateauFlattening", generator.enablePlateauFlattening ? 1 : 0);
+            EditorPrefs.SetFloat(PREFS_PREFIX + "PlateauHeightThreshold", generator.plateauHeightThreshold);
+            EditorPrefs.SetFloat(PREFS_PREFIX + "PlateauMaxVariation", generator.plateauMaxVariation);
 
             // World settings
             EditorPrefs.SetInt(PREFS_PREFIX + "WorldSizeX", generator.worldSize.x);
@@ -199,10 +238,8 @@ namespace LandOfTheConsumers.Terrain
             EditorPrefs.SetFloat(PREFS_PREFIX + "ChunkDelay", generator.chunkGenerationDelay);
 
             Debug.Log("[TerrainGenerator] Settings saved: " +
-                $"Seed={generator.seed}, Octaves={generator.octaves}, Frequency={generator.frequency:F3}, " +
-                $"Amplitude={generator.amplitude:F2}, Lacunarity={generator.lacunarity:F2}, " +
-                $"Persistence={generator.persistence:F2}, GroundHeight={generator.groundHeight:F1}, " +
-                $"HeightMult={generator.heightMultiplier:F1}, WorldSize=({generator.worldSize.x},{generator.worldSize.y},{generator.worldSize.z})");
+                $"Biome={generator.biomeType}, Seed={generator.seed}, Octaves={generator.octaves}, " +
+                $"Frequency={generator.frequency:F3}, HeightMult={generator.heightMultiplier:F1}");
         }
 
         private void LoadSettings(TerrainGenerator generator, bool showDialog = false)
@@ -211,16 +248,27 @@ namespace LandOfTheConsumers.Terrain
             {
                 Undo.RecordObject(generator, "Load Terrain Settings");
 
+                // Biome settings
+                generator.biomeType = (BiomeType)EditorPrefs.GetInt(PREFS_PREFIX + "BiomeType", 0);
+
                 // Noise settings
                 generator.octaves = EditorPrefs.GetInt(PREFS_PREFIX + "Octaves", 4);
                 generator.frequency = EditorPrefs.GetFloat(PREFS_PREFIX + "Frequency", 0.05f);
-                generator.amplitude = EditorPrefs.GetFloat(PREFS_PREFIX + "Amplitude", 5f);
                 generator.lacunarity = EditorPrefs.GetFloat(PREFS_PREFIX + "Lacunarity", 2f);
                 generator.persistence = EditorPrefs.GetFloat(PREFS_PREFIX + "Persistence", 0.5f);
 
                 // Terrain shape
                 generator.groundHeight = EditorPrefs.GetFloat(PREFS_PREFIX + "GroundHeight", 8f);
-                generator.heightMultiplier = EditorPrefs.GetFloat(PREFS_PREFIX + "HeightMultiplier", 50f);
+                generator.heightMultiplier = EditorPrefs.GetFloat(PREFS_PREFIX + "HeightMultiplier", 250f);
+
+                // Advanced features
+                generator.ridgedNoiseBlend = EditorPrefs.GetFloat(PREFS_PREFIX + "RidgedNoiseBlend", 0f);
+                generator.domainWarpStrength = EditorPrefs.GetFloat(PREFS_PREFIX + "DomainWarpStrength", 10f);
+                generator.waterLevel = EditorPrefs.GetFloat(PREFS_PREFIX + "WaterLevel", 5f);
+                generator.flattenUnderwater = EditorPrefs.GetInt(PREFS_PREFIX + "FlattenUnderwater", 1) == 1;
+                generator.enablePlateauFlattening = EditorPrefs.GetInt(PREFS_PREFIX + "EnablePlateauFlattening", 0) == 1;
+                generator.plateauHeightThreshold = EditorPrefs.GetFloat(PREFS_PREFIX + "PlateauHeightThreshold", 200f);
+                generator.plateauMaxVariation = EditorPrefs.GetFloat(PREFS_PREFIX + "PlateauMaxVariation", 4f);
 
                 // World settings
                 int worldX = EditorPrefs.GetInt(PREFS_PREFIX + "WorldSizeX", 4);
@@ -236,10 +284,7 @@ namespace LandOfTheConsumers.Terrain
                 EditorUtility.SetDirty(generator);
 
                 Debug.Log("[TerrainGenerator] Settings loaded: " +
-                    $"Seed={generator.seed}, Octaves={generator.octaves}, Frequency={generator.frequency:F3}, " +
-                    $"Amplitude={generator.amplitude:F2}, Lacunarity={generator.lacunarity:F2}, " +
-                    $"Persistence={generator.persistence:F2}, GroundHeight={generator.groundHeight:F1}, " +
-                    $"HeightMult={generator.heightMultiplier:F1}, WorldSize=({generator.worldSize.x},{generator.worldSize.y},{generator.worldSize.z})");
+                    $"Biome={generator.biomeType}, Seed={generator.seed}, HeightMult={generator.heightMultiplier:F1}");
             }
             else if (showDialog)
             {
@@ -254,14 +299,21 @@ namespace LandOfTheConsumers.Terrain
             TerrainSettings settings = new TerrainSettings
             {
                 exportDate = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"),
+                biomeType = generator.biomeType,
                 seed = generator.seed,
                 octaves = generator.octaves,
                 frequency = generator.frequency,
-                amplitude = generator.amplitude,
                 lacunarity = generator.lacunarity,
                 persistence = generator.persistence,
                 groundHeight = generator.groundHeight,
                 heightMultiplier = generator.heightMultiplier,
+                ridgedNoiseBlend = generator.ridgedNoiseBlend,
+                domainWarpStrength = generator.domainWarpStrength,
+                waterLevel = generator.waterLevel,
+                flattenUnderwater = generator.flattenUnderwater,
+                enablePlateauFlattening = generator.enablePlateauFlattening,
+                plateauHeightThreshold = generator.plateauHeightThreshold,
+                plateauMaxVariation = generator.plateauMaxVariation,
                 worldSizeX = generator.worldSize.x,
                 worldSizeY = generator.worldSize.y,
                 worldSizeZ = generator.worldSize.z,
@@ -296,14 +348,21 @@ namespace LandOfTheConsumers.Terrain
 
                     Undo.RecordObject(generator, "Import Terrain Settings");
 
+                    generator.biomeType = settings.biomeType;
                     generator.seed = settings.seed;
                     generator.octaves = settings.octaves;
                     generator.frequency = settings.frequency;
-                    generator.amplitude = settings.amplitude;
                     generator.lacunarity = settings.lacunarity;
                     generator.persistence = settings.persistence;
                     generator.groundHeight = settings.groundHeight;
                     generator.heightMultiplier = settings.heightMultiplier;
+                    generator.ridgedNoiseBlend = settings.ridgedNoiseBlend;
+                    generator.domainWarpStrength = settings.domainWarpStrength;
+                    generator.waterLevel = settings.waterLevel;
+                    generator.flattenUnderwater = settings.flattenUnderwater;
+                    generator.enablePlateauFlattening = settings.enablePlateauFlattening;
+                    generator.plateauHeightThreshold = settings.plateauHeightThreshold;
+                    generator.plateauMaxVariation = settings.plateauMaxVariation;
                     generator.worldSize = new Vector3Int(settings.worldSizeX, settings.worldSizeY, settings.worldSizeZ);
                     generator.generateOneAtATime = settings.generateOneAtATime;
                     generator.chunkGenerationDelay = settings.chunkGenerationDelay;

@@ -115,5 +115,70 @@ namespace LandOfTheConsumers.Procedural
             float v = h < 4 ? y : h == 12 || h == 14 ? x : z;
             return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
         }
+
+        /// <summary>
+        /// Ridged noise - creates sharp mountain ridges and cliffs (like Cube World)
+        /// Returns values in range -amplitude to amplitude
+        /// </summary>
+        public static float GetRidgedNoise(float x, float y, float z, int octaves, float frequency, float amplitude, float lacunarity, float persistence, int seed)
+        {
+            int[] p = CreatePermutationTable(seed);
+
+            float total = 0f;
+            float maxValue = 0f;
+            float currentAmplitude = 1f;
+            float currentFrequency = frequency;
+
+            for (int i = 0; i < octaves; i++)
+            {
+                // Get noise and invert + abs for ridges
+                float noise = Get3DPerlin(x * currentFrequency, y * currentFrequency, z * currentFrequency, p);
+                noise = 1f - Mathf.Abs(noise); // Create ridges by inverting absolute value
+                noise = noise * noise; // Square it for sharper ridges
+
+                total += noise * currentAmplitude;
+                maxValue += currentAmplitude;
+
+                currentAmplitude *= persistence;
+                currentFrequency *= lacunarity;
+            }
+
+            // Normalize and apply amplitude
+            return (total / maxValue) * amplitude;
+        }
+
+        /// <summary>
+        /// Domain warping - offsets sampling position based on other noise
+        /// Creates more interesting, less grid-aligned terrain features
+        /// </summary>
+        public static Vector2 DomainWarp2D(float x, float z, float warpStrength, int seed)
+        {
+            int[] p = CreatePermutationTable(seed + 1000); // Different seed for warping
+
+            float offsetX = Get3DPerlin(x * 0.02f, z * 0.02f, 100f, p) * warpStrength;
+            float offsetZ = Get3DPerlin(x * 0.02f, z * 0.02f, 200f, p) * warpStrength;
+
+            return new Vector2(x + offsetX, z + offsetZ);
+        }
+
+        /// <summary>
+        /// Combined terrain noise - blends smooth and ridged noise based on a blend factor
+        /// blendFactor 0 = pure smooth, 1 = pure ridged
+        /// </summary>
+        public static float GetTerrainNoise(float x, float y, float z,
+            int octaves, float frequency, float amplitude, float lacunarity, float persistence,
+            float ridgedBlend, int seed)
+        {
+            float smoothNoise = GetFractalNoise(x, y, z, octaves, frequency, amplitude, lacunarity, persistence, seed);
+
+            if (ridgedBlend <= 0.001f)
+            {
+                return smoothNoise; // Optimization: skip ridged if not needed
+            }
+
+            float ridgedNoise = GetRidgedNoise(x, y, z, octaves, frequency, amplitude, lacunarity, persistence, seed + 5000);
+
+            return Mathf.Lerp(smoothNoise, ridgedNoise, ridgedBlend);
+        }
     }
 }

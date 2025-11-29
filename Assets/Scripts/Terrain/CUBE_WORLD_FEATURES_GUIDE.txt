@@ -1,0 +1,154 @@
+CUBE WORLD-STYLE TERRAIN FEATURES GUIDE
+========================================
+
+I've added three major features to your marching cubes terrain system:
+
+1. RIDGED NOISE - Sharp Cliffs & Mountain Ridges
+2. DOMAIN WARPING - Organic, Non-Grid-Aligned Terrain
+3. WATER LEVEL SYSTEM - Lakes and Oceans
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+HOW TO USE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Select your TerrainGenerator GameObject in the scene
+2. In the Inspector, find the "Advanced Terrain Features" section
+3. Adjust the following settings:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+RIDGED NOISE BLEND (0 to 1)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Creates sharp cliffs and mountain ridges like in Cube World/Minecraft
+
+  0.0  = Smooth rolling hills (your current terrain)
+  0.3  = Some cliffs mixed with smooth areas
+  0.5  = Balanced - dramatic cliffs and ridges
+  0.8  = Very sharp features everywhere
+  1.0  = Maximum sharp ridges
+
+SUGGESTED STARTING VALUE: 0.4
+
+Try this for Cube World style:
+  • Ridged Blend: 0.4-0.6
+  • Frequency: 0.04-0.06
+  • Height Multiplier: 80-120
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DOMAIN WARP STRENGTH (0 to 50+)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Distorts terrain to create more organic, natural-looking shapes
+Breaks up grid-aligned patterns
+
+  0    = No warping (can look repetitive)
+  10   = Subtle organic distortion (RECOMMENDED)
+  20   = Noticeable swirls and curves
+  30   = Strong distortion
+  40+  = Extreme organic shapes
+
+SUGGESTED STARTING VALUE: 10
+
+This makes your terrain look less "computer generated"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WATER LEVEL & FLATTEN UNDERWATER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Creates lakes, rivers, and ocean areas
+
+Water Level: Height where water appears (in world units)
+  • Set BELOW groundHeight to create lakes
+  • Set TO groundHeight for no water
+  • Typical: groundHeight - 3 to groundHeight - 5
+
+Flatten Underwater: ✓ or ✗
+  • ✓ Enabled = Smooth lake floors (Minecraft/Cube World style)
+  • ✗ Disabled = Terrain continues underwater (underwater caves)
+
+Example Settings for Lakes:
+  • Ground Height: 8
+  • Water Level: 5
+  • Flatten Underwater: ✓ (checked)
+
+This will create lakes 3 units deep with flat bottoms.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+RECOMMENDED PRESETS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CUBE WORLD MOUNTAINS:
+  Octaves: 5
+  Frequency: 0.05
+  Amplitude: 6
+  Height Multiplier: 100
+  Ridged Blend: 0.5
+  Domain Warp: 15
+  Water Level: 5
+  Flatten Underwater: ✓
+
+GENTLE HILLS WITH LAKES:
+  Octaves: 4
+  Frequency: 0.06
+  Amplitude: 4
+  Height Multiplier: 40
+  Ridged Blend: 0.2
+  Domain Warp: 10
+  Water Level: 6
+  Flatten Underwater: ✓
+
+DRAMATIC CLIFFS:
+  Octaves: 5
+  Frequency: 0.04
+  Amplitude: 7
+  Height Multiplier: 120
+  Ridged Blend: 0.7
+  Domain Warp: 20
+  Water Level: 4
+  Flatten Underwater: ✓
+
+MINECRAFT-LIKE:
+  Octaves: 6
+  Frequency: 0.08
+  Amplitude: 5
+  Height Multiplier: 80
+  Ridged Blend: 0.6
+  Domain Warp: 5
+  Water Level: 7
+  Flatten Underwater: ✓
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WHAT CHANGED IN THE CODE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Modified Files:
+  • NoiseGenerator.cs - Added 3 new functions:
+    - GetRidgedNoise() - Creates sharp cliffs
+    - DomainWarp2D() - Distorts sampling positions
+    - GetTerrainNoise() - Blends smooth and ridged noise
+
+  • TerrainGenerator.cs - Added new settings in Inspector
+  • TerrainChunk.cs - Updated voxel generation to use new features
+
+All changes are backward compatible - your existing terrain will work,
+just with new optional features to enable!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TIPS FOR BEST RESULTS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Start with small values and increase gradually
+2. Ridged blend + high frequency = lots of small sharp features
+3. Ridged blend + low frequency = massive dramatic cliffs
+4. Domain warp 10-15 is usually perfect for organic feel
+5. Water level works best 3-5 units below ground height
+6. Use "Regenerate World" context menu to quickly test changes
+
+Have fun creating Cube World-style terrain! 🏔️

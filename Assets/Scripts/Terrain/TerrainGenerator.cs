@@ -3,8 +3,21 @@ using System.Collections.Generic;
 
 namespace LandOfTheConsumers.Terrain
 {
+    public enum BiomeType
+    {
+        Basic,
+        MountainPlateaus
+    }
+
     public class TerrainGenerator : MonoBehaviour
     {
+        [Header("Biome Settings")]
+        [Tooltip("BIOME TYPE - Select terrain biome preset\n\n" +
+                 "• Basic: Standard rolling hills and mountains\n" +
+                 "• Mountain Plateaus: Flat-topped mountains with sharp cliffs\n\n" +
+                 "After changing biome type, click 'Apply Biome Preset' to load settings")]
+        [SerializeField] public BiomeType biomeType = BiomeType.Basic;
+
         [Header("World Settings")]
         [Tooltip("Number of chunks to generate (X, Y, Z). Each chunk is 16x16x16 units. Example: (4,2,4) = 64x32x64 world")]
         [SerializeField] public Vector3Int worldSize = new Vector3Int(4, 2, 4);
@@ -41,16 +54,6 @@ namespace LandOfTheConsumers.Terrain
                  "Try: 0.03 for mountains, 0.08 for gentle hills")]
         [SerializeField] [Range(0.01f, 0.2f)] public float frequency = 0.05f;
 
-        [Tooltip("AMPLITUDE - Controls the strength of the noise effect\n\n" +
-                 "EFFECT: How much the noise affects terrain shape\n" +
-                 "• 1-3 = Subtle variation, mostly flat\n" +
-                 "• 4-7 = Moderate variation, normal terrain\n" +
-                 "• 8-12 = Strong variation, dramatic landscape\n" +
-                 "• 13-20 = Extreme variation, wild terrain\n\n" +
-                 "VISUAL: Higher amplitude = more dramatic height differences\n" +
-                 "Works together with Height Multiplier")]
-        [SerializeField] [Range(0.1f, 20f)] public float amplitude = 5f;
-
         [Tooltip("LACUNARITY - Detail size multiplier between layers\n\n" +
                  "EFFECT: How much each detail layer differs in size from the previous\n" +
                  "• 1.5-1.8 = Details are similar sizes (smoother, softer terrain)\n" +
@@ -75,15 +78,71 @@ namespace LandOfTheConsumers.Terrain
         [Tooltip("Base terrain elevation in units. This is the 'sea level' of your terrain. Try: 8-12")]
         [SerializeField] public float groundHeight = 8f;
 
-        [Tooltip("Multiplier for terrain height variation. Higher = taller mountains and deeper valleys.\n\n" +
-                 "EFFECT: Controls vertical height of terrain features\n" +
-                 "• 10-30 = Gentle rolling hills\n" +
-                 "• 40-80 = Normal mountains and valleys\n" +
-                 "• 90-150 = Tall dramatic mountains\n" +
-                 "• 160-200 = Extreme towering peaks\n" +
-                 "• 200-300 = Massive mountain ranges\n\n" +
-                 "Works with Amplitude - both multiply together for final height")]
-        [SerializeField] [Range(1f, 300f)] public float heightMultiplier = 50f;
+        [Tooltip("HEIGHT MULTIPLIER - Controls vertical scale of terrain\n\n" +
+                 "EFFECT: Controls vertical height of all terrain features\n" +
+                 "• 50-150 = Gentle rolling hills\n" +
+                 "• 200-400 = Normal mountains and valleys\n" +
+                 "• 450-750 = Tall dramatic mountains\n" +
+                 "• 800-1000 = Extreme towering peaks\n\n" +
+                 "Formula: terrainHeight = groundHeight + (noise × heightMultiplier)\n" +
+                 "Note: This is the ONLY setting that controls vertical height (amplitude removed for simplicity)")]
+        [SerializeField] [Range(1f, 1000f)] public float heightMultiplier = 250f;
+
+        [Header("Advanced Terrain Features")]
+        [Tooltip("RIDGED NOISE BLEND - Creates sharp cliffs and mountain ridges (like Cube World)\n\n" +
+                 "EFFECT: Blends smooth terrain with sharp ridged features\n" +
+                 "• 0.0 = Pure smooth terrain (rolling hills)\n" +
+                 "• 0.3-0.5 = Balanced (some cliffs, mostly smooth)\n" +
+                 "• 0.6-0.8 = Dramatic cliffs and ridges\n" +
+                 "• 1.0 = Maximum sharp features everywhere\n\n" +
+                 "VISUAL: Creates Minecraft/Cube World-style sharp mountain edges")]
+        [SerializeField] [Range(0f, 1f)] public float ridgedNoiseBlend = 0.0f;
+
+        [Tooltip("DOMAIN WARP STRENGTH - Distorts terrain for more organic shapes\n\n" +
+                 "EFFECT: Offsets terrain features to break up grid patterns\n" +
+                 "• 0 = No warping (can look grid-aligned)\n" +
+                 "• 5-15 = Subtle organic distortion (recommended)\n" +
+                 "• 20-40 = Strong swirls and curves\n" +
+                 "• 50+ = Extreme distortion\n\n" +
+                 "VISUAL: Makes terrain less repetitive and more natural")]
+        [SerializeField] [Range(0f, 50f)] public float domainWarpStrength = 10f;
+
+        [Tooltip("WATER LEVEL - Height where water/lakes appear\n\n" +
+                 "EFFECT: Terrain below this height becomes underwater\n" +
+                 "• Set to groundHeight for no water\n" +
+                 "• Set below groundHeight for lakes\n" +
+                 "• Terrain below water level will be flattened\n\n" +
+                 "VISUAL: Creates lakes, rivers, and ocean areas")]
+        [SerializeField] public float waterLevel = 5f;
+
+        [Tooltip("FLATTEN UNDERWATER - Removes terrain below water level\n\n" +
+                 "EFFECT: Creates smooth lake/ocean floors\n" +
+                 "• Enabled = Flat water surfaces (like Minecraft)\n" +
+                 "• Disabled = Terrain continues underwater\n\n" +
+                 "Try: Enable for lakes, disable for underwater caves")]
+        [SerializeField] public bool flattenUnderwater = true;
+
+        [Tooltip("PLATEAU FLATTENING - Creates flat-topped mountains\n\n" +
+                 "EFFECT: Mountains above threshold height get flattened tops\n" +
+                 "• Enabled = Flat mesa/plateau tops (Mountain Plateaus biome)\n" +
+                 "• Disabled = Natural mountain peaks\n\n" +
+                 "When enabled, mountain tops only vary by 'Plateau Max Variation' units")]
+        [SerializeField] public bool enablePlateauFlattening = false;
+
+        [Tooltip("PLATEAU HEIGHT THRESHOLD - Minimum height for plateau flattening\n\n" +
+                 "EFFECT: Only terrain above this height gets flattened\n" +
+                 "• Lower value = more plateaus (more mountains get flat tops)\n" +
+                 "• Higher value = fewer plateaus (only tallest mountains flatten)\n\n" +
+                 "Recommended: Set to groundHeight + 60% of heightMultiplier")]
+        [SerializeField] [Range(0f, 500f)] public float plateauHeightThreshold = 200f;
+
+        [Tooltip("PLATEAU MAX VARIATION - Height variation allowed on plateau tops\n\n" +
+                 "EFFECT: Maximum height difference across a plateau top\n" +
+                 "• 0 = Perfectly flat (like a table)\n" +
+                 "• 2-4 = Slight variation (recommended for natural look)\n" +
+                 "• 5-10 = More bumpy plateau tops\n\n" +
+                 "You requested max 4 layers for natural-looking flat tops")]
+        [SerializeField] [Range(0f, 20f)] public float plateauMaxVariation = 4f;
 
         [Header("Generation")]
         [Tooltip("Automatically generate terrain when the scene starts")]
@@ -204,8 +263,10 @@ namespace LandOfTheConsumers.Terrain
 
             TerrainChunk chunk = chunkObj.AddComponent<TerrainChunk>();
 
-            chunk.SetNoiseParameters(octaves, frequency, amplitude, lacunarity, persistence, seed);
+            chunk.SetNoiseParameters(octaves, frequency, 1.0f, lacunarity, persistence, seed);
             chunk.SetTerrainShape(groundHeight, heightMultiplier);
+            chunk.SetAdvancedFeatures(ridgedNoiseBlend, domainWarpStrength, waterLevel, flattenUnderwater,
+                                     enablePlateauFlattening, plateauHeightThreshold, plateauMaxVariation);
 
             chunk.Initialize(position, terrainMaterial);
 
@@ -234,6 +295,62 @@ namespace LandOfTheConsumers.Terrain
         public void RegenerateWorld()
         {
             GenerateWorld();
+        }
+
+        [ContextMenu("Apply Biome Preset")]
+        public void ApplyBiomePreset()
+        {
+            switch (biomeType)
+            {
+                case BiomeType.Basic:
+                    ApplyBasicBiome();
+                    break;
+                case BiomeType.MountainPlateaus:
+                    ApplyMountainPlateausBiome();
+                    break;
+            }
+
+            Debug.Log($"[TerrainGenerator] Applied {biomeType} biome preset");
+        }
+
+        private void ApplyBasicBiome()
+        {
+            // Standard rolling hills and mountains
+            octaves = 4;
+            frequency = 0.05f;
+            lacunarity = 2.0f;
+            persistence = 0.5f;
+            groundHeight = 8f;
+            heightMultiplier = 250f;
+            ridgedNoiseBlend = 0.0f; // Smooth terrain
+            domainWarpStrength = 10f;
+            waterLevel = 5f;
+            flattenUnderwater = true;
+
+            // No plateau flattening for basic terrain
+            enablePlateauFlattening = false;
+            plateauHeightThreshold = 200f;
+            plateauMaxVariation = 4f;
+        }
+
+        private void ApplyMountainPlateausBiome()
+        {
+            // Flat-topped mountains with sharp cliffs (Mesa/Plateau style)
+            octaves = 5;
+            frequency = 0.04f;
+            lacunarity = 2.2f;
+            persistence = 0.4f; // Less detail on top = flatter plateaus
+            groundHeight = 10f;
+            heightMultiplier = 400f; // Tall plateaus
+            ridgedNoiseBlend = 0.7f; // Sharp cliff edges
+            domainWarpStrength = 15f; // More organic shapes
+            waterLevel = 8f;
+            flattenUnderwater = true;
+
+            // Enable plateau flattening for mountain plateaus
+            enablePlateauFlattening = true;
+            plateauHeightThreshold = groundHeight + (heightMultiplier * 0.5f); // 50% height threshold = 210
+            plateauMaxVariation = 4f; // Max 4 units variation on plateau tops
         }
 
         public TerrainChunk GetChunk(Vector3Int position)
