@@ -3,8 +3,21 @@ using System.Collections.Generic;
 
 namespace LandOfTheConsumers.Terrain
 {
-    public class TerrainGenerator : MonoBehaviour
+    public enum BiomeType
     {
+        Basic,
+        MountainPlateaus
+    }
+
+    public class AdvancedTerrainGenerator : MonoBehaviour
+    {
+        [Header("Biome Settings")]
+        [Tooltip("BIOME TYPE - Select terrain biome preset\n\n" +
+                 "• Basic: Standard rolling hills and mountains\n" +
+                 "• Mountain Plateaus: Flat-topped mountains with sharp cliffs\n\n" +
+                 "After changing biome type, click 'Apply Biome Preset' to load settings")]
+        [SerializeField] public BiomeType biomeType = BiomeType.Basic;
+
         [Header("World Settings")]
         [Tooltip("Number of chunks to generate (X, Y, Z). Each chunk is 16x16x16 units. Example: (4,2,4) = 64x32x64 world")]
         [SerializeField] public Vector3Int worldSize = new Vector3Int(4, 2, 4);
@@ -75,6 +88,47 @@ namespace LandOfTheConsumers.Terrain
                  "Note: This is the ONLY setting that controls vertical height (amplitude removed for simplicity)")]
         [SerializeField] [Range(1f, 1000f)] public float heightMultiplier = 250f;
 
+        [Header("Advanced Terrain Features")]
+        [Tooltip("RIDGED NOISE BLEND - Creates sharp cliffs and mountain ridges (like Cube World)\n\n" +
+                 "EFFECT: Blends smooth terrain with sharp ridged features\n" +
+                 "• 0.0 = Pure smooth terrain (rolling hills)\n" +
+                 "• 0.3-0.5 = Balanced (some cliffs, mostly smooth)\n" +
+                 "• 0.6-0.8 = Dramatic cliffs and ridges\n" +
+                 "• 1.0 = Maximum sharp features everywhere\n\n" +
+                 "VISUAL: Creates Minecraft/Cube World-style sharp mountain edges")]
+        [SerializeField] [Range(0f, 1f)] public float ridgedNoiseBlend = 0.0f;
+
+        [Tooltip("DOMAIN WARP STRENGTH - Distorts terrain for more organic shapes\n\n" +
+                 "EFFECT: Offsets terrain features to break up grid patterns\n" +
+                 "• 0 = No warping (can look grid-aligned)\n" +
+                 "• 5-15 = Subtle organic distortion (recommended)\n" +
+                 "• 20-40 = Strong swirls and curves\n" +
+                 "• 50+ = Extreme distortion\n\n" +
+                 "VISUAL: Makes terrain less repetitive and more natural")]
+        [SerializeField] [Range(0f, 50f)] public float domainWarpStrength = 10f;
+
+        [Tooltip("PLATEAU FLATTENING - Creates flat-topped mountains\n\n" +
+                 "EFFECT: Mountains above threshold height get flattened tops\n" +
+                 "• Enabled = Flat mesa/plateau tops (Mountain Plateaus biome)\n" +
+                 "• Disabled = Natural mountain peaks\n\n" +
+                 "When enabled, mountain tops only vary by 'Plateau Max Variation' units")]
+        [SerializeField] public bool enablePlateauFlattening = false;
+
+        [Tooltip("PLATEAU HEIGHT THRESHOLD - Minimum height for plateau flattening\n\n" +
+                 "EFFECT: Only terrain above this height gets flattened\n" +
+                 "• Lower value = more plateaus (more mountains get flat tops)\n" +
+                 "• Higher value = fewer plateaus (only tallest mountains flatten)\n\n" +
+                 "Recommended: Set to groundHeight + 60% of heightMultiplier")]
+        [SerializeField] [Range(0f, 500f)] public float plateauHeightThreshold = 200f;
+
+        [Tooltip("PLATEAU MAX VARIATION - Height variation allowed on plateau tops\n\n" +
+                 "EFFECT: Maximum height difference across a plateau top\n" +
+                 "• 0 = Perfectly flat (like a table)\n" +
+                 "• 2-4 = Slight variation (recommended for natural look)\n" +
+                 "• 5-10 = More bumpy plateau tops\n\n" +
+                 "You requested max 4 layers for natural-looking flat tops")]
+        [SerializeField] [Range(0f, 20f)] public float plateauMaxVariation = 4f;
+
         [Header("Generation")]
         [Tooltip("Automatically generate terrain when the scene starts")]
         [SerializeField] public bool generateOnStart = true;
@@ -92,7 +146,7 @@ namespace LandOfTheConsumers.Terrain
         [Tooltip("Delay between chunks when generating one at a time (in seconds). Lower = faster.")]
         [SerializeField] [Range(0.01f, 1f)] public float chunkGenerationDelay = 0.1f;
 
-        private Dictionary<Vector3Int, TerrainChunk> chunks = new Dictionary<Vector3Int, TerrainChunk>();
+        private Dictionary<Vector3Int, AdvancedTerrainChunk> chunks = new Dictionary<Vector3Int, AdvancedTerrainChunk>();
         private GameObject chunksContainer;
 
         private void Start()
@@ -108,7 +162,7 @@ namespace LandOfTheConsumers.Terrain
         {
             ClearWorld();
 
-            chunksContainer = new GameObject("Terrain Chunks");
+            chunksContainer = new GameObject("Advanced Terrain Chunks");
             chunksContainer.transform.SetParent(transform);
 
             if (generateOneAtATime)
@@ -138,7 +192,7 @@ namespace LandOfTheConsumers.Terrain
                         currentChunk++;
                         if (showProgressInConsole && currentChunk % 5 == 0)
                         {
-                            Debug.Log($"Generating terrain: {currentChunk}/{totalChunks} chunks");
+                            Debug.Log($"[Advanced] Generating terrain: {currentChunk}/{totalChunks} chunks");
                         }
                     }
                 }
@@ -146,7 +200,7 @@ namespace LandOfTheConsumers.Terrain
 
             if (showProgressInConsole)
             {
-                Debug.Log($"Terrain generation complete! Generated {totalChunks} chunks.");
+                Debug.Log($"[Advanced] Terrain generation complete! Generated {totalChunks} chunks.");
             }
         }
 
@@ -167,7 +221,7 @@ namespace LandOfTheConsumers.Terrain
                         currentChunk++;
                         if (showProgressInConsole)
                         {
-                            Debug.Log($"Generating terrain: {currentChunk}/{totalChunks} chunks");
+                            Debug.Log($"[Advanced] Generating terrain: {currentChunk}/{totalChunks} chunks");
                         }
 
                         // Wait before generating next chunk
@@ -178,13 +232,13 @@ namespace LandOfTheConsumers.Terrain
 
             if (showProgressInConsole)
             {
-                Debug.Log($"Terrain generation complete! Generated {totalChunks} chunks.");
+                Debug.Log($"[Advanced] Terrain generation complete! Generated {totalChunks} chunks.");
             }
         }
 
         private void GenerateChunk(Vector3Int position)
         {
-            GameObject chunkObj = new GameObject($"Chunk_{position.x}_{position.y}_{position.z}");
+            GameObject chunkObj = new GameObject($"AdvancedChunk_{position.x}_{position.y}_{position.z}");
             chunkObj.transform.SetParent(chunksContainer.transform);
 
             // Position chunk based on its grid coordinates
@@ -192,10 +246,12 @@ namespace LandOfTheConsumers.Terrain
             Vector3 worldPosition = new Vector3(position.x * 16f, position.y * 16f, position.z * 16f);
             chunkObj.transform.localPosition = worldPosition;
 
-            TerrainChunk chunk = chunkObj.AddComponent<TerrainChunk>();
+            AdvancedTerrainChunk chunk = chunkObj.AddComponent<AdvancedTerrainChunk>();
 
             chunk.SetNoiseParameters(octaves, frequency, 1.0f, lacunarity, persistence, seed);
             chunk.SetTerrainShape(groundHeight, heightMultiplier);
+            chunk.SetAdvancedFeatures(ridgedNoiseBlend, domainWarpStrength,
+                                     enablePlateauFlattening, plateauHeightThreshold, plateauMaxVariation);
 
             chunk.Initialize(position, terrainMaterial);
 
@@ -226,15 +282,67 @@ namespace LandOfTheConsumers.Terrain
             GenerateWorld();
         }
 
-        public TerrainChunk GetChunk(Vector3Int position)
+        [ContextMenu("Apply Biome Preset")]
+        public void ApplyBiomePreset()
         {
-            chunks.TryGetValue(position, out TerrainChunk chunk);
+            switch (biomeType)
+            {
+                case BiomeType.Basic:
+                    ApplyBasicBiome();
+                    break;
+                case BiomeType.MountainPlateaus:
+                    ApplyMountainPlateausBiome();
+                    break;
+            }
+
+            Debug.Log($"[AdvancedTerrainGenerator] Applied {biomeType} biome preset");
+        }
+
+        private void ApplyBasicBiome()
+        {
+            // Standard rolling hills and mountains
+            octaves = 4;
+            frequency = 0.05f;
+            lacunarity = 2.0f;
+            persistence = 0.5f;
+            groundHeight = 8f;
+            heightMultiplier = 250f;
+            ridgedNoiseBlend = 0.0f; // Smooth terrain
+            domainWarpStrength = 10f;
+
+            // No plateau flattening for basic terrain
+            enablePlateauFlattening = false;
+            plateauHeightThreshold = 200f;
+            plateauMaxVariation = 4f;
+        }
+
+        private void ApplyMountainPlateausBiome()
+        {
+            // Flat-topped mountains with sharp cliffs (Mesa/Plateau style)
+            octaves = 5;
+            frequency = 0.04f;
+            lacunarity = 2.2f;
+            persistence = 0.4f; // Less detail on top = flatter plateaus
+            groundHeight = 10f;
+            heightMultiplier = 400f; // Tall plateaus
+            ridgedNoiseBlend = 0.7f; // Sharp cliff edges
+            domainWarpStrength = 15f; // More organic shapes
+
+            // Enable plateau flattening for mountain plateaus
+            enablePlateauFlattening = true;
+            plateauHeightThreshold = groundHeight + (heightMultiplier * 0.5f); // 50% height threshold = 210
+            plateauMaxVariation = 4f; // Max 4 units variation on plateau tops
+        }
+
+        public AdvancedTerrainChunk GetChunk(Vector3Int position)
+        {
+            chunks.TryGetValue(position, out AdvancedTerrainChunk chunk);
             return chunk;
         }
 
         private void OnDrawGizmosSelected()
         {
-            Gizmos.color = Color.cyan;
+            Gizmos.color = Color.magenta;
             Vector3 worldSizeInUnits = new Vector3(worldSize.x * 16, worldSize.y * 16, worldSize.z * 16);
             Gizmos.DrawWireCube(transform.position + worldSizeInUnits * 0.5f, worldSizeInUnits);
         }

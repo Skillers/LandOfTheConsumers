@@ -180,5 +180,325 @@ namespace LandOfTheConsumers.Procedural
 
             return Mathf.Lerp(smoothNoise, ridgedNoise, ridgedBlend);
         }
+
+        /// <summary>
+        /// Generate a random point in a grid cell based on cell coordinates and seed
+        /// </summary>
+        private static Vector2 GetCellPoint(int cellX, int cellY, int seed)
+        {
+            System.Random random = new System.Random(seed + cellX * 374761393 + cellY * 668265263);
+            float offsetX = (float)random.NextDouble();
+            float offsetY = (float)random.NextDouble();
+            return new Vector2(cellX + offsetX, cellY + offsetY);
+        }
+
+        /// <summary>
+        /// Cellular/Worley noise - returns distance to nearest cell point
+        /// Returns value in range 0 to 1 (0 = at point, 1 = far from points)
+        /// scale controls the size of cells (larger = bigger cells)
+        /// </summary>
+        public static float GetCellularNoise(float x, float y, float scale, int seed)
+        {
+            // Scale the coordinates
+            x *= scale;
+            y *= scale;
+
+            // Find which cell we're in
+            int cellX = Mathf.FloorToInt(x);
+            int cellY = Mathf.FloorToInt(y);
+
+            float minDistance = float.MaxValue;
+
+            // Check this cell and all 8 neighboring cells
+            for (int offsetX = -1; offsetX <= 1; offsetX++)
+            {
+                for (int offsetY = -1; offsetY <= 1; offsetY++)
+                {
+                    int neighborX = cellX + offsetX;
+                    int neighborY = cellY + offsetY;
+
+                    // Get the random point in this cell
+                    Vector2 cellPoint = GetCellPoint(neighborX, neighborY, seed);
+
+                    // Calculate distance to this point
+                    float dx = x - cellPoint.x;
+                    float dy = y - cellPoint.y;
+                    float distance = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    minDistance = Mathf.Min(minDistance, distance);
+                }
+            }
+
+            // Normalize distance to roughly 0-1 range
+            // The max distance to a point in a cell is roughly sqrt(2) ≈ 1.414
+            return Mathf.Clamp01(minDistance / 1.414f);
+        }
+
+        /// <summary>
+        /// Cellular noise that returns both closest and second closest distance
+        /// Useful for creating cell borders
+        /// </summary>
+        public static void GetCellularNoiseDistances(float x, float y, float scale, int seed,
+            out float closest, out float secondClosest)
+        {
+            // Scale the coordinates
+            x *= scale;
+            y *= scale;
+
+            // Find which cell we're in
+            int cellX = Mathf.FloorToInt(x);
+            int cellY = Mathf.FloorToInt(y);
+
+            closest = float.MaxValue;
+            secondClosest = float.MaxValue;
+
+            // Check this cell and all 8 neighboring cells
+            for (int offsetX = -1; offsetX <= 1; offsetX++)
+            {
+                for (int offsetY = -1; offsetY <= 1; offsetY++)
+                {
+                    int neighborX = cellX + offsetX;
+                    int neighborY = cellY + offsetY;
+
+                    // Get the random point in this cell
+                    Vector2 cellPoint = GetCellPoint(neighborX, neighborY, seed);
+
+                    // Calculate distance to this point
+                    float dx = x - cellPoint.x;
+                    float dy = y - cellPoint.y;
+                    float distance = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    if (distance < closest)
+                    {
+                        secondClosest = closest;
+                        closest = distance;
+                    }
+                    else if (distance < secondClosest)
+                    {
+                        secondClosest = distance;
+                    }
+                }
+            }
+
+            // Normalize distances
+            closest = Mathf.Clamp01(closest / 1.414f);
+            secondClosest = Mathf.Clamp01(secondClosest / 1.414f);
+        }
+
+        /// <summary>
+        /// Get the ID of the closest cell point (for Voronoi diagrams)
+        /// Returns a unique value for each cell
+        /// </summary>
+        public static int GetCellularVoronoiID(float x, float y, float scale, int seed)
+        {
+            // Scale the coordinates
+            x *= scale;
+            y *= scale;
+
+            // Find which cell we're in
+            int cellX = Mathf.FloorToInt(x);
+            int cellY = Mathf.FloorToInt(y);
+
+            float minDistance = float.MaxValue;
+            int closestCellX = cellX;
+            int closestCellY = cellY;
+
+            // Check this cell and all 8 neighboring cells
+            for (int offsetX = -1; offsetX <= 1; offsetX++)
+            {
+                for (int offsetY = -1; offsetY <= 1; offsetY++)
+                {
+                    int neighborX = cellX + offsetX;
+                    int neighborY = cellY + offsetY;
+
+                    // Get the random point in this cell
+                    Vector2 cellPoint = GetCellPoint(neighborX, neighborY, seed);
+
+                    // Calculate distance to this point
+                    float dx = x - cellPoint.x;
+                    float dy = y - cellPoint.y;
+                    float distance = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    if (distance < minDistance)
+                    {
+                        minDistance = distance;
+                        closestCellX = neighborX;
+                        closestCellY = neighborY;
+                    }
+                }
+            }
+
+            // Return a unique ID for this cell (combine coordinates)
+            return closestCellX * 73856093 + closestCellY * 19349663;
+        }
+
+        /// <summary>
+        /// Generate a random point within a chunk based on chunk coordinates and seed
+        /// Each chunk has a 90% chance of having ONE random point, 10% chance of no point
+        /// Returns null if chunk has no point
+        /// </summary>
+        private static Vector2? GetChunkPoint(int chunkX, int chunkY, int chunkSize, int seed)
+        {
+            // Create a better seed by combining chunk coordinates with the base seed
+            // Use prime numbers and XOR for better distribution
+            int chunkSeed = seed;
+            chunkSeed ^= chunkX.GetHashCode();
+            chunkSeed = (chunkSeed << 5) + chunkSeed + chunkY.GetHashCode(); // Hash combination
+
+            System.Random random = new System.Random(chunkSeed);
+
+            // 10% chance this chunk has no point
+            if (random.NextDouble() < 0.1)
+            {
+                return null;
+            }
+
+            // Generate random point within the chunk
+            float offsetX = (float)random.NextDouble() * chunkSize;
+            float offsetY = (float)random.NextDouble() * chunkSize;
+            return new Vector2(chunkX * chunkSize + offsetX, chunkY * chunkSize + offsetY);
+        }
+
+        /// <summary>
+        /// Chunk-based cellular noise - each chunk has a 90% chance of ONE random point
+        /// Returns distance to nearest chunk point (0 to 1)
+        /// Perfect for biome-like generation where each chunk is a region
+        /// </summary>
+        public static float GetChunkCellularNoise(float x, float y, int chunkSize, int seed)
+        {
+            // Find which chunk we're in
+            int chunkX = Mathf.FloorToInt(x / chunkSize);
+            int chunkY = Mathf.FloorToInt(y / chunkSize);
+
+            float minDistance = float.MaxValue;
+
+            // Check this chunk and all 8 neighboring chunks (3x3 grid)
+            // Need to check neighbors because closest point might be in adjacent chunk
+            for (int offsetX = -1; offsetX <= 1; offsetX++)
+            {
+                for (int offsetY = -1; offsetY <= 1; offsetY++)
+                {
+                    int neighborX = chunkX + offsetX;
+                    int neighborY = chunkY + offsetY;
+
+                    // Get the random point in this chunk (might be null if no point)
+                    Vector2? chunkPoint = GetChunkPoint(neighborX, neighborY, chunkSize, seed);
+
+                    // Skip this chunk if it has no point
+                    if (!chunkPoint.HasValue)
+                        continue;
+
+                    // Calculate distance to this point
+                    float dx = x - chunkPoint.Value.x;
+                    float dy = y - chunkPoint.Value.y;
+                    float distance = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    minDistance = Mathf.Min(minDistance, distance);
+                }
+            }
+
+            // Normalize distance based on chunk size
+            // Max possible distance is roughly sqrt(2) * chunkSize (diagonal across chunk)
+            float maxDistance = chunkSize * 1.414f;
+            return Mathf.Clamp01(minDistance / maxDistance);
+        }
+
+        /// <summary>
+        /// Chunk-based cellular noise that returns both closest and second closest distances
+        /// Useful for creating chunk/biome borders
+        /// </summary>
+        public static void GetChunkCellularNoiseDistances(float x, float y, int chunkSize, int seed,
+            out float closest, out float secondClosest)
+        {
+            // Find which chunk we're in
+            int chunkX = Mathf.FloorToInt(x / chunkSize);
+            int chunkY = Mathf.FloorToInt(y / chunkSize);
+
+            closest = float.MaxValue;
+            secondClosest = float.MaxValue;
+
+            // Check this chunk and all 8 neighboring chunks
+            for (int offsetX = -1; offsetX <= 1; offsetX++)
+            {
+                for (int offsetY = -1; offsetY <= 1; offsetY++)
+                {
+                    int neighborX = chunkX + offsetX;
+                    int neighborY = chunkY + offsetY;
+
+                    // Get the random point in this chunk (might be null if no point)
+                    Vector2? chunkPoint = GetChunkPoint(neighborX, neighborY, chunkSize, seed);
+
+                    // Skip this chunk if it has no point
+                    if (!chunkPoint.HasValue)
+                        continue;
+
+                    // Calculate distance to this point
+                    float dx = x - chunkPoint.Value.x;
+                    float dy = y - chunkPoint.Value.y;
+                    float distance = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    if (distance < closest)
+                    {
+                        secondClosest = closest;
+                        closest = distance;
+                    }
+                    else if (distance < secondClosest)
+                    {
+                        secondClosest = distance;
+                    }
+                }
+            }
+
+            // Normalize distances based on chunk size
+            float maxDistance = chunkSize * 1.414f;
+            closest = Mathf.Clamp01(closest / maxDistance);
+            secondClosest = Mathf.Clamp01(secondClosest / maxDistance);
+        }
+
+        /// <summary>
+        /// Get the chunk coordinates of the nearest chunk point (for Voronoi diagrams)
+        /// Returns chunk X and Y coordinates, or current chunk if no points found
+        /// </summary>
+        public static Vector2Int GetChunkVoronoiID(float x, float y, int chunkSize, int seed)
+        {
+            // Find which chunk we're in
+            int chunkX = Mathf.FloorToInt(x / chunkSize);
+            int chunkY = Mathf.FloorToInt(y / chunkSize);
+
+            float minDistance = float.MaxValue;
+            int closestChunkX = chunkX;
+            int closestChunkY = chunkY;
+
+            // Check this chunk and all 8 neighboring chunks
+            for (int offsetX = -1; offsetX <= 1; offsetX++)
+            {
+                for (int offsetY = -1; offsetY <= 1; offsetY++)
+                {
+                    int neighborX = chunkX + offsetX;
+                    int neighborY = chunkY + offsetY;
+
+                    // Get the random point in this chunk (might be null if no point)
+                    Vector2? chunkPoint = GetChunkPoint(neighborX, neighborY, chunkSize, seed);
+
+                    // Skip this chunk if it has no point
+                    if (!chunkPoint.HasValue)
+                        continue;
+
+                    // Calculate distance to this point
+                    float dx = x - chunkPoint.Value.x;
+                    float dy = y - chunkPoint.Value.y;
+                    float distance = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    if (distance < minDistance)
+                    {
+                        minDistance = distance;
+                        closestChunkX = neighborX;
+                        closestChunkY = neighborY;
+                    }
+                }
+            }
+
+            return new Vector2Int(closestChunkX, closestChunkY);
+        }
     }
 }

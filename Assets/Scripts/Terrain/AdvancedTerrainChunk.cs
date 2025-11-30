@@ -4,7 +4,7 @@ using LandOfTheConsumers.Procedural;
 namespace LandOfTheConsumers.Terrain
 {
     [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
-    public class TerrainChunk : MonoBehaviour
+    public class AdvancedTerrainChunk : MonoBehaviour
     {
         [Header("Chunk Settings")]
         [Tooltip("Voxel resolution per chunk (X, Y, Z). Default: 16x16x16. Higher = smoother but slower. Usually set by TerrainGenerator.")]
@@ -41,6 +41,22 @@ namespace LandOfTheConsumers.Terrain
 
         [Tooltip("Seed for random generation. Usually inherited from TerrainGenerator.")]
         [SerializeField] private int seed = 12345;
+
+        [Header("Advanced Features")]
+        [Tooltip("Blend between smooth and ridged noise. 0 = smooth, 1 = sharp cliffs")]
+        [SerializeField] private float ridgedBlend = 0f;
+
+        [Tooltip("Domain warp strength for more organic terrain")]
+        [SerializeField] private float domainWarpStrength = 10f;
+
+        [Tooltip("Enable plateau flattening for mountain tops")]
+        [SerializeField] private bool enablePlateauFlattening = false;
+
+        [Tooltip("Height threshold above which plateaus are flattened")]
+        [SerializeField] private float plateauHeightThreshold = 200f;
+
+        [Tooltip("Maximum height variation allowed on plateau tops")]
+        [SerializeField] private float plateauMaxVariation = 4f;
 
         private MeshFilter meshFilter;
         private MeshRenderer meshRenderer;
@@ -116,22 +132,47 @@ namespace LandOfTheConsumers.Terrain
                     float worldX = worldOffset.x + x * voxelSize;
                     float worldZ = worldOffset.z + z * voxelSize;
 
+                    // Apply domain warping to sample position
+                    Vector2 warpedPos;
+                    if (domainWarpStrength > 0.1f)
+                    {
+                        warpedPos = NoiseGenerator.DomainWarp2D(worldX, worldZ, domainWarpStrength, seed);
+                    }
+                    else
+                    {
+                        warpedPos = new Vector2(worldX, worldZ);
+                    }
+
                     // Calculate terrain noise ONCE for this entire column
                     float noise = NoiseGenerator.GetTerrainNoise(
-                        worldX,
-                        worldZ,
+                        warpedPos.x,
+                        warpedPos.y,
                         0, // Still 2D (no Y) to prevent floating islands
                         octaves,
                         frequency,
                         amplitude,
                         lacunarity,
                         persistence,
-                        0f, // No ridged blend - pure smooth terrain
+                        ridgedBlend, // Blend between smooth and ridged
                         seed
                     );
 
                     // Calculate the terrain height at this XZ position
                     float terrainHeight = groundHeight + noise * heightMultiplier;
+
+                    // Plateau flattening - Flatten mountain tops above threshold
+                    if (enablePlateauFlattening && terrainHeight > plateauHeightThreshold)
+                    {
+                        // Calculate how far above threshold this point is
+                        float baseHeight = plateauHeightThreshold;
+
+                        // Allow only small variation (max 4 units) on plateau tops
+                        // Map the noise to a small range instead of full height variation
+                        float normalizedNoise = (noise + 1.0f) * 0.5f; // Convert -1 to 1 range into 0 to 1
+                        float plateauVariation = normalizedNoise * plateauMaxVariation;
+
+                        terrainHeight = baseHeight + plateauVariation;
+                    }
 
                     // Calculate which Y range actually needs processing for this column
                     // Add small margin for marching cubes interpolation (2 voxels)
@@ -194,9 +235,19 @@ namespace LandOfTheConsumers.Terrain
             this.heightMultiplier = heightMultiplier;
         }
 
+        public void SetAdvancedFeatures(float ridgedBlend, float domainWarpStrength,
+                                        bool enablePlateauFlattening, float plateauHeightThreshold, float plateauMaxVariation)
+        {
+            this.ridgedBlend = ridgedBlend;
+            this.domainWarpStrength = domainWarpStrength;
+            this.enablePlateauFlattening = enablePlateauFlattening;
+            this.plateauHeightThreshold = plateauHeightThreshold;
+            this.plateauMaxVariation = plateauMaxVariation;
+        }
+
         private void OnDrawGizmosSelected()
         {
-            Gizmos.color = Color.green;
+            Gizmos.color = Color.magenta;
             Vector3 center = transform.position + new Vector3(chunkSize.x, chunkSize.y, chunkSize.z) * voxelSize * 0.5f;
             Vector3 size = new Vector3(chunkSize.x, chunkSize.y, chunkSize.z) * voxelSize;
             Gizmos.DrawWireCube(center, size);

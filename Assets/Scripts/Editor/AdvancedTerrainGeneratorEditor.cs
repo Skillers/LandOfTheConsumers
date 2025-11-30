@@ -6,9 +6,10 @@ using System.IO;
 namespace LandOfTheConsumers.Terrain
 {
     [System.Serializable]
-    public class TerrainSettings
+    public class AdvancedTerrainSettings
     {
         public string exportDate;
+        public BiomeType biomeType;
         public int seed;
         public int octaves;
         public float frequency;
@@ -16,6 +17,11 @@ namespace LandOfTheConsumers.Terrain
         public float persistence;
         public float groundHeight;
         public float heightMultiplier;
+        public float ridgedNoiseBlend;
+        public float domainWarpStrength;
+        public bool enablePlateauFlattening;
+        public float plateauHeightThreshold;
+        public float plateauMaxVariation;
         public int worldSizeX;
         public int worldSizeY;
         public int worldSizeZ;
@@ -23,10 +29,10 @@ namespace LandOfTheConsumers.Terrain
         public float chunkGenerationDelay;
     }
 
-    [CustomEditor(typeof(TerrainGenerator))]
-    public class TerrainGeneratorEditor : Editor
+    [CustomEditor(typeof(AdvancedTerrainGenerator))]
+    public class AdvancedTerrainGeneratorEditor : Editor
     {
-        private const string PREFS_PREFIX = "TerrainGen_";
+        private const string PREFS_PREFIX = "AdvancedTerrainGen_";
         private static bool isSubscribed = false;
 
         private void OnEnable()
@@ -49,8 +55,8 @@ namespace LandOfTheConsumers.Terrain
 
         private void OnPlayModeStateChanged(PlayModeStateChange state)
         {
-            // Find the TerrainGenerator in the scene
-            TerrainGenerator generator = FindObjectOfType<TerrainGenerator>();
+            // Find the AdvancedTerrainGenerator in the scene
+            AdvancedTerrainGenerator generator = FindObjectOfType<AdvancedTerrainGenerator>();
             if (generator == null) return;
 
             switch (state)
@@ -58,19 +64,19 @@ namespace LandOfTheConsumers.Terrain
                 case PlayModeStateChange.ExitingEditMode:
                     // Save settings before entering play mode
                     SaveSettings(generator);
-                    Debug.Log("[TerrainGenerator] Auto-save: Settings saved before entering Play mode");
+                    Debug.Log("[AdvancedTerrainGenerator] Auto-save: Settings saved before entering Play mode");
                     break;
 
                 case PlayModeStateChange.ExitingPlayMode:
                     // Save any changes made during play mode
                     SaveSettings(generator);
-                    Debug.Log("[TerrainGenerator] Auto-save: Settings saved from Play mode");
+                    Debug.Log("[AdvancedTerrainGenerator] Auto-save: Settings saved from Play mode");
                     break;
 
                 case PlayModeStateChange.EnteredEditMode:
                     // Restore settings after exiting play mode
                     LoadSettings(generator);
-                    Debug.Log("[TerrainGenerator] Auto-restore: Settings restored after exiting Play mode");
+                    Debug.Log("[AdvancedTerrainGenerator] Auto-restore: Settings restored after exiting Play mode");
                     break;
             }
         }
@@ -89,7 +95,7 @@ namespace LandOfTheConsumers.Terrain
 
             DrawDefaultInspector();
 
-            TerrainGenerator generator = (TerrainGenerator)target;
+            AdvancedTerrainGenerator generator = (AdvancedTerrainGenerator)target;
 
             EditorGUILayout.Space(10);
             EditorGUILayout.LabelField("Seed Controls", EditorStyles.boldLabel);
@@ -128,6 +134,27 @@ namespace LandOfTheConsumers.Terrain
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.Space(10);
+            EditorGUILayout.LabelField("Biome Controls", EditorStyles.boldLabel);
+
+            GUI.backgroundColor = new Color(0.7f, 0.5f, 1f);
+            if (GUILayout.Button("🏔️ Apply Biome Preset", GUILayout.Height(30)))
+            {
+                Undo.RecordObject(generator, "Apply Biome Preset");
+                generator.ApplyBiomePreset();
+                EditorUtility.SetDirty(generator);
+            }
+            GUI.backgroundColor = Color.white;
+
+            EditorGUILayout.Space(5);
+            EditorGUILayout.HelpBox(
+                $"Current Biome: {generator.biomeType}\n\n" +
+                "Click 'Apply Biome Preset' to load preset settings for the selected biome type.\n" +
+                "• Basic: Standard rolling hills and mountains\n" +
+                "• Mountain Plateaus: Flat-topped mountains with sharp cliffs",
+                MessageType.Info
+            );
+
+            EditorGUILayout.Space(10);
             EditorGUILayout.LabelField("Terrain Controls", EditorStyles.boldLabel);
 
             EditorGUILayout.BeginHorizontal();
@@ -162,22 +189,21 @@ namespace LandOfTheConsumers.Terrain
             );
 
             EditorGUILayout.Space(10);
-            EditorGUILayout.LabelField("Quick Settings Guide", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Advanced Features Guide", EditorStyles.boldLabel);
 
             EditorGUILayout.HelpBox(
-                "FLATTER TERRAIN: Decrease Height Multiplier (50-150)\n" +
-                "HILLIER TERRAIN: Increase Height Multiplier (200-400)\n" +
-                "MORE DETAIL: Increase Octaves (5-6)\n" +
-                "LARGER FEATURES: Decrease Frequency (0.02-0.03)\n" +
-                "SMALLER FEATURES: Increase Frequency (0.08-0.1)\n\n" +
-                "For advanced features (Ridged Noise, Domain Warp),\n" +
-                "use the AdvancedTerrainGenerator component instead.",
+                "RIDGED NOISE: Increase for sharp cliffs and mountain ridges\n" +
+                "DOMAIN WARP: Increase for more organic, swirly terrain shapes\n" +
+                "COMBINATION: Use both for unique Cube World-style terrain",
                 MessageType.None
             );
         }
 
-        private void SaveSettings(TerrainGenerator generator)
+        private void SaveSettings(AdvancedTerrainGenerator generator)
         {
+            // Biome settings
+            EditorPrefs.SetInt(PREFS_PREFIX + "BiomeType", (int)generator.biomeType);
+
             // Noise settings
             EditorPrefs.SetInt(PREFS_PREFIX + "Octaves", generator.octaves);
             EditorPrefs.SetFloat(PREFS_PREFIX + "Frequency", generator.frequency);
@@ -187,6 +213,13 @@ namespace LandOfTheConsumers.Terrain
             // Terrain shape
             EditorPrefs.SetFloat(PREFS_PREFIX + "GroundHeight", generator.groundHeight);
             EditorPrefs.SetFloat(PREFS_PREFIX + "HeightMultiplier", generator.heightMultiplier);
+
+            // Advanced features
+            EditorPrefs.SetFloat(PREFS_PREFIX + "RidgedNoiseBlend", generator.ridgedNoiseBlend);
+            EditorPrefs.SetFloat(PREFS_PREFIX + "DomainWarpStrength", generator.domainWarpStrength);
+            EditorPrefs.SetInt(PREFS_PREFIX + "EnablePlateauFlattening", generator.enablePlateauFlattening ? 1 : 0);
+            EditorPrefs.SetFloat(PREFS_PREFIX + "PlateauHeightThreshold", generator.plateauHeightThreshold);
+            EditorPrefs.SetFloat(PREFS_PREFIX + "PlateauMaxVariation", generator.plateauMaxVariation);
 
             // World settings
             EditorPrefs.SetInt(PREFS_PREFIX + "WorldSizeX", generator.worldSize.x);
@@ -198,16 +231,20 @@ namespace LandOfTheConsumers.Terrain
             EditorPrefs.SetInt(PREFS_PREFIX + "GenerateOneAtATime", generator.generateOneAtATime ? 1 : 0);
             EditorPrefs.SetFloat(PREFS_PREFIX + "ChunkDelay", generator.chunkGenerationDelay);
 
-            Debug.Log("[TerrainGenerator] Settings saved: " +
-                $"Seed={generator.seed}, Octaves={generator.octaves}, " +
-                $"Frequency={generator.frequency:F3}, HeightMult={generator.heightMultiplier:F1}");
+            Debug.Log("[AdvancedTerrainGenerator] Settings saved: " +
+                $"Biome={generator.biomeType}, Seed={generator.seed}, Octaves={generator.octaves}, " +
+                $"Frequency={generator.frequency:F3}, HeightMult={generator.heightMultiplier:F1}, " +
+                $"RidgedBlend={generator.ridgedNoiseBlend:F2}, DomainWarp={generator.domainWarpStrength:F1}");
         }
 
-        private void LoadSettings(TerrainGenerator generator, bool showDialog = false)
+        private void LoadSettings(AdvancedTerrainGenerator generator, bool showDialog = false)
         {
             if (EditorPrefs.HasKey(PREFS_PREFIX + "Octaves"))
             {
                 Undo.RecordObject(generator, "Load Terrain Settings");
+
+                // Biome settings
+                generator.biomeType = (BiomeType)EditorPrefs.GetInt(PREFS_PREFIX + "BiomeType", 0);
 
                 // Noise settings
                 generator.octaves = EditorPrefs.GetInt(PREFS_PREFIX + "Octaves", 4);
@@ -218,6 +255,13 @@ namespace LandOfTheConsumers.Terrain
                 // Terrain shape
                 generator.groundHeight = EditorPrefs.GetFloat(PREFS_PREFIX + "GroundHeight", 8f);
                 generator.heightMultiplier = EditorPrefs.GetFloat(PREFS_PREFIX + "HeightMultiplier", 250f);
+
+                // Advanced features
+                generator.ridgedNoiseBlend = EditorPrefs.GetFloat(PREFS_PREFIX + "RidgedNoiseBlend", 0f);
+                generator.domainWarpStrength = EditorPrefs.GetFloat(PREFS_PREFIX + "DomainWarpStrength", 10f);
+                generator.enablePlateauFlattening = EditorPrefs.GetInt(PREFS_PREFIX + "EnablePlateauFlattening", 0) == 1;
+                generator.plateauHeightThreshold = EditorPrefs.GetFloat(PREFS_PREFIX + "PlateauHeightThreshold", 200f);
+                generator.plateauMaxVariation = EditorPrefs.GetFloat(PREFS_PREFIX + "PlateauMaxVariation", 4f);
 
                 // World settings
                 int worldX = EditorPrefs.GetInt(PREFS_PREFIX + "WorldSizeX", 4);
@@ -232,8 +276,8 @@ namespace LandOfTheConsumers.Terrain
 
                 EditorUtility.SetDirty(generator);
 
-                Debug.Log("[TerrainGenerator] Settings loaded: " +
-                    $"Seed={generator.seed}, HeightMult={generator.heightMultiplier:F1}");
+                Debug.Log("[AdvancedTerrainGenerator] Settings loaded: " +
+                    $"Biome={generator.biomeType}, Seed={generator.seed}, HeightMult={generator.heightMultiplier:F1}");
             }
             else if (showDialog)
             {
@@ -243,11 +287,12 @@ namespace LandOfTheConsumers.Terrain
             }
         }
 
-        private void ExportToJSON(TerrainGenerator generator)
+        private void ExportToJSON(AdvancedTerrainGenerator generator)
         {
-            TerrainSettings settings = new TerrainSettings
+            AdvancedTerrainSettings settings = new AdvancedTerrainSettings
             {
                 exportDate = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"),
+                biomeType = generator.biomeType,
                 seed = generator.seed,
                 octaves = generator.octaves,
                 frequency = generator.frequency,
@@ -255,6 +300,11 @@ namespace LandOfTheConsumers.Terrain
                 persistence = generator.persistence,
                 groundHeight = generator.groundHeight,
                 heightMultiplier = generator.heightMultiplier,
+                ridgedNoiseBlend = generator.ridgedNoiseBlend,
+                domainWarpStrength = generator.domainWarpStrength,
+                enablePlateauFlattening = generator.enablePlateauFlattening,
+                plateauHeightThreshold = generator.plateauHeightThreshold,
+                plateauMaxVariation = generator.plateauMaxVariation,
                 worldSizeX = generator.worldSize.x,
                 worldSizeY = generator.worldSize.y,
                 worldSizeZ = generator.worldSize.z,
@@ -263,32 +313,33 @@ namespace LandOfTheConsumers.Terrain
             };
 
             string json = JsonUtility.ToJson(settings, true);
-            string fileName = $"TerrainSettings_{settings.exportDate}.json";
-            string path = EditorUtility.SaveFilePanel("Export Terrain Settings", Application.dataPath, fileName, "json");
+            string fileName = $"AdvancedTerrainSettings_{settings.exportDate}.json";
+            string path = EditorUtility.SaveFilePanel("Export Advanced Terrain Settings", Application.dataPath, fileName, "json");
 
             if (!string.IsNullOrEmpty(path))
             {
                 File.WriteAllText(path, json);
-                Debug.Log($"[TerrainGenerator] Settings exported to: {path}");
+                Debug.Log($"[AdvancedTerrainGenerator] Settings exported to: {path}");
                 EditorUtility.DisplayDialog("Export Successful",
-                    $"Terrain settings exported to:\n{Path.GetFileName(path)}\n\nSeed: {settings.seed}",
+                    $"Advanced terrain settings exported to:\n{Path.GetFileName(path)}\n\nSeed: {settings.seed}",
                     "OK");
             }
         }
 
-        private void ImportFromJSON(TerrainGenerator generator)
+        private void ImportFromJSON(AdvancedTerrainGenerator generator)
         {
-            string path = EditorUtility.OpenFilePanel("Import Terrain Settings", Application.dataPath, "json");
+            string path = EditorUtility.OpenFilePanel("Import Advanced Terrain Settings", Application.dataPath, "json");
 
             if (!string.IsNullOrEmpty(path))
             {
                 try
                 {
                     string json = File.ReadAllText(path);
-                    TerrainSettings settings = JsonUtility.FromJson<TerrainSettings>(json);
+                    AdvancedTerrainSettings settings = JsonUtility.FromJson<AdvancedTerrainSettings>(json);
 
                     Undo.RecordObject(generator, "Import Terrain Settings");
 
+                    generator.biomeType = settings.biomeType;
                     generator.seed = settings.seed;
                     generator.octaves = settings.octaves;
                     generator.frequency = settings.frequency;
@@ -296,15 +347,20 @@ namespace LandOfTheConsumers.Terrain
                     generator.persistence = settings.persistence;
                     generator.groundHeight = settings.groundHeight;
                     generator.heightMultiplier = settings.heightMultiplier;
+                    generator.ridgedNoiseBlend = settings.ridgedNoiseBlend;
+                    generator.domainWarpStrength = settings.domainWarpStrength;
+                    generator.enablePlateauFlattening = settings.enablePlateauFlattening;
+                    generator.plateauHeightThreshold = settings.plateauHeightThreshold;
+                    generator.plateauMaxVariation = settings.plateauMaxVariation;
                     generator.worldSize = new Vector3Int(settings.worldSizeX, settings.worldSizeY, settings.worldSizeZ);
                     generator.generateOneAtATime = settings.generateOneAtATime;
                     generator.chunkGenerationDelay = settings.chunkGenerationDelay;
 
                     EditorUtility.SetDirty(generator);
 
-                    Debug.Log($"[TerrainGenerator] Settings imported from: {path}");
+                    Debug.Log($"[AdvancedTerrainGenerator] Settings imported from: {path}");
                     EditorUtility.DisplayDialog("Import Successful",
-                        $"Terrain settings imported!\n\nExported: {settings.exportDate}\nSeed: {settings.seed}\n\nClick 'Regenerate' to apply.",
+                        $"Advanced terrain settings imported!\n\nExported: {settings.exportDate}\nSeed: {settings.seed}\n\nClick 'Regenerate' to apply.",
                         "OK");
                 }
                 catch (Exception e)
