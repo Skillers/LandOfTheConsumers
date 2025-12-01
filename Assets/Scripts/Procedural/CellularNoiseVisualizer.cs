@@ -10,10 +10,10 @@ namespace LandOfTheConsumers.Procedural
     public class CellularNoiseVisualizer : MonoBehaviour
     {
         [Header("World Size")]
-        [Tooltip("World size in chunks (X, Z). Example: (10, 10) = 10x10 chunks")]
-        [SerializeField] public Vector2Int worldSizeInChunks = new Vector2Int(10, 10);
+        [Tooltip("World size in biomes (X, Z). Example: (10, 10) = 10x10 biomes")]
+        [SerializeField] public Vector2Int worldSizeInBiomes = new Vector2Int(10, 10);
 
-        private const int chunkSize = 32;
+        private const int biomeSize = 128;
 
         [Tooltip("Pixels per world unit (controls texture detail)\n\n" +
                  "• 1 = 1 pixel per unit (low detail, fast)\n" +
@@ -25,8 +25,8 @@ namespace LandOfTheConsumers.Procedural
         [Tooltip("SEED - Random seed for noise generation\n\n" +
                  "Same seed = identical pattern every time\n" +
                  "Change seed = completely different pattern\n\n" +
-                 "Each chunk has a 90% chance of having ONE random point\n" +
-                 "10% of chunks will have no point (more organic!)")]
+                 "Each biome has a 90% chance of having ONE random point\n" +
+                 "10% of biomes will have no point (more organic!)")]
         [SerializeField] public int seed = 12345;
 
         [Tooltip("CONNECTION DISTANCE - Points within this distance connect into one larger region\n\n" +
@@ -38,11 +38,8 @@ namespace LandOfTheConsumers.Procedural
         [SerializeField] [Range(0f, 150f)] public float connectionDistance = 50f;
 
         [Header("Display")]
-        [Tooltip("Automatically regenerate when settings change (Editor only)")]
-        [SerializeField] private bool autoRegenerate = false;
-
-        [Tooltip("Log empty chunks to console")]
-        [SerializeField] private bool logEmptyChunks = true;
+        [Tooltip("Log empty biomes to console")]
+        [SerializeField] private bool logEmptyBiomes = true;
 
         [Tooltip("Show region numbers in scene view")]
         [SerializeField] private bool showRegionNumbers = true;
@@ -51,14 +48,8 @@ namespace LandOfTheConsumers.Procedural
         private MeshFilter meshFilter;
         private MeshRenderer meshRenderer;
 
-        private int lastSeed;
-        private Vector2Int lastWorldSize;
-        private int lastChunkSize;
-        private int lastPixelsPerUnit;
-        private float lastConnectionDistance;
-
-        // Store chunk points and connections for visualization
-        private List<Vector2> chunkPoints = new List<Vector2>();
+        // Store biome points and connections for visualization
+        private List<Vector2> biomePoints = new List<Vector2>();
         private List<(int, int)> connections = new List<(int, int)>(); // Pairs of point indices that are connected
         private Dictionary<int, int> pointToRegionID = new Dictionary<int, int>(); // Maps point index to region ID
 
@@ -68,21 +59,23 @@ namespace LandOfTheConsumers.Procedural
             GenerateNoiseTexture();
         }
 
-        private void Update()
+#if UNITY_EDITOR
+        private void OnValidate()
         {
-            if (!Application.isPlaying && autoRegenerate)
+            // Auto-regenerate when any parameter changes in the editor
+            if (!Application.isPlaying && isActiveAndEnabled)
             {
-                // Check if any settings changed
-                if (seed != lastSeed ||
-                    worldSizeInChunks != lastWorldSize ||
-                    chunkSize != lastChunkSize ||
-                    pixelsPerUnit != lastPixelsPerUnit ||
-                    !Mathf.Approximately(connectionDistance, lastConnectionDistance))
+                // Delay slightly to avoid multiple regenerations during rapid changes
+                UnityEditor.EditorApplication.delayCall += () =>
                 {
-                    GenerateNoiseTexture();
-                }
+                    if (this != null)
+                    {
+                        GenerateNoiseTexture();
+                    }
+                };
             }
         }
+#endif
 
         private void SetupComponents()
         {
@@ -109,31 +102,31 @@ namespace LandOfTheConsumers.Procedural
         public void GenerateNoiseTexture()
         {
             // Validate settings
-            if (worldSizeInChunks.x <= 0 || worldSizeInChunks.y <= 0)
+            if (worldSizeInBiomes.x <= 0 || worldSizeInBiomes.y <= 0)
             {
                 Debug.LogWarning("[CellularNoiseVisualizer] World size must be greater than 0");
                 return;
             }
 
-            if (chunkSize <= 0)
+            if (biomeSize <= 0)
             {
-                Debug.LogWarning("[CellularNoiseVisualizer] Chunk size must be greater than 0");
+                Debug.LogWarning("[CellularNoiseVisualizer] Biome size must be greater than 0");
                 return;
             }
 
             SetupComponents();
 
             // Clear previous data
-            chunkPoints.Clear();
+            biomePoints.Clear();
             connections.Clear();
             pointToRegionID.Clear();
 
             // Calculate world size in units
-            int worldWidth = worldSizeInChunks.x * chunkSize;
-            int worldHeight = worldSizeInChunks.y * chunkSize;
+            int worldWidth = worldSizeInBiomes.x * biomeSize;
+            int worldHeight = worldSizeInBiomes.y * biomeSize;
 
-            // Generate all chunk points and log empty chunks
-            GenerateChunkPoints();
+            // Generate all biome points and log empty biomes
+            GenerateBiomePoints();
 
             // Build region groups from connections
             BuildRegionGroups();
@@ -171,9 +164,9 @@ namespace LandOfTheConsumers.Procedural
                     float minDistanceToAnyPoint = float.MaxValue;
                     int nearestPointIndex = -1;
 
-                    for (int i = 0; i < chunkPoints.Count; i++)
+                    for (int i = 0; i < biomePoints.Count; i++)
                     {
-                        float dist = Vector2.Distance(pixelPos, chunkPoints[i]);
+                        float dist = Vector2.Distance(pixelPos, biomePoints[i]);
                         if (dist < minDistanceToAnyPoint)
                         {
                             minDistanceToAnyPoint = dist;
@@ -190,11 +183,11 @@ namespace LandOfTheConsumers.Procedural
                         Vector2 regionCenter = Vector2.zero;
                         int regionPointCount = 0;
 
-                        for (int i = 0; i < chunkPoints.Count; i++)
+                        for (int i = 0; i < biomePoints.Count; i++)
                         {
                             if (pointToRegionID[i] == regionID)
                             {
-                                regionCenter += chunkPoints[i];
+                                regionCenter += biomePoints[i];
                                 regionPointCount++;
                             }
                         }
@@ -207,7 +200,7 @@ namespace LandOfTheConsumers.Procedural
                             float distanceToRegionCenter = Vector2.Distance(pixelPos, regionCenter);
 
                             // Normalize the distance for grayscale
-                            float maxDist = chunkSize * 1.5f * Mathf.Sqrt(regionPointCount); // Scale by region size
+                            float maxDist = biomeSize * 1.5f * Mathf.Sqrt(regionPointCount); // Scale by region size
                             float noise = Mathf.Clamp01(distanceToRegionCenter / maxDist);
 
                             // Convert to grayscale color
@@ -230,7 +223,7 @@ namespace LandOfTheConsumers.Procedural
             noiseTexture.SetPixels(pixels);
 
             // Highlight the actual random points in yellow and draw red connection lines
-            DrawChunkPoints(pixels, textureWidth, textureHeight, worldWidth, worldHeight);
+            DrawBiomePoints(pixels, textureWidth, textureHeight, worldWidth, worldHeight);
             DrawConnections(pixels, textureWidth, textureHeight);
 
             noiseTexture.SetPixels(pixels);
@@ -244,58 +237,40 @@ namespace LandOfTheConsumers.Procedural
 
             // Create or update plane mesh
             CreatePlaneMesh(worldWidth, worldHeight);
-
-            // Store last values
-            lastSeed = seed;
-            lastWorldSize = worldSizeInChunks;
-            lastChunkSize = chunkSize;
-            lastPixelsPerUnit = pixelsPerUnit;
-            lastConnectionDistance = connectionDistance;
-
-            // Count unique regions
-            HashSet<int> uniqueRegions = new HashSet<int>();
-            foreach (var regionID in pointToRegionID.Values)
-            {
-                uniqueRegions.Add(regionID);
-            }
-
-            Debug.Log($"[CellularNoiseVisualizer] Generated {textureWidth}x{textureHeight} texture " +
-                      $"for {worldSizeInChunks.x}x{worldSizeInChunks.y} chunks ({worldWidth}x{worldHeight} world units) " +
-                      $"- {chunkPoints.Count} points, {connections.Count} connections, {uniqueRegions.Count} regions (Seed: {seed})");
         }
 
-        private void GenerateChunkPoints()
+        private void GenerateBiomePoints()
         {
-            int emptyChunkCount = 0;
-            List<Vector2Int> emptyChunks = new List<Vector2Int>();
+            int emptyBiomeCount = 0;
+            List<Vector2Int> emptyBiomes = new List<Vector2Int>();
 
-            // Generate all chunk points
-            for (int chunkY = 0; chunkY < worldSizeInChunks.y; chunkY++)
+            // Generate all biome points
+            for (int biomeY = 0; biomeY < worldSizeInBiomes.y; biomeY++)
             {
-                for (int chunkX = 0; chunkX < worldSizeInChunks.x; chunkX++)
+                for (int biomeX = 0; biomeX < worldSizeInBiomes.x; biomeX++)
                 {
-                    Vector2? point = GetChunkPointForVisualization(chunkX, chunkY);
+                    Vector2? point = GetBiomePointForVisualization(biomeX, biomeY);
 
                     if (point.HasValue)
                     {
-                        chunkPoints.Add(point.Value);
+                        biomePoints.Add(point.Value);
                     }
                     else
                     {
-                        emptyChunkCount++;
-                        emptyChunks.Add(new Vector2Int(chunkX, chunkY));
+                        emptyBiomeCount++;
+                        emptyBiomes.Add(new Vector2Int(biomeX, biomeY));
                     }
                 }
             }
 
-            // Log empty chunks if enabled
-            if (logEmptyChunks && emptyChunkCount > 0)
+            // Log empty biomes if enabled
+            if (logEmptyBiomes && emptyBiomeCount > 0)
             {
                 System.Text.StringBuilder sb = new System.Text.StringBuilder();
-                sb.AppendLine($"[CellularNoiseVisualizer] {emptyChunkCount} empty chunks (10% chance per chunk):");
-                foreach (var chunk in emptyChunks)
+                sb.AppendLine($"[CellularNoiseVisualizer] {emptyBiomeCount} empty biomes (10% chance per biome):");
+                foreach (var biome in emptyBiomes)
                 {
-                    sb.AppendLine($"  - Chunk ({chunk.x}, {chunk.y}) has no point");
+                    sb.AppendLine($"  - Biome ({biome.x}, {biome.y}) has no point");
                 }
                 Debug.Log(sb.ToString());
             }
@@ -303,11 +278,11 @@ namespace LandOfTheConsumers.Procedural
             // Find connections between nearby points
             if (connectionDistance > 0)
             {
-                for (int i = 0; i < chunkPoints.Count; i++)
+                for (int i = 0; i < biomePoints.Count; i++)
                 {
-                    for (int j = i + 1; j < chunkPoints.Count; j++)
+                    for (int j = i + 1; j < biomePoints.Count; j++)
                     {
-                        float distance = Vector2.Distance(chunkPoints[i], chunkPoints[j]);
+                        float distance = Vector2.Distance(biomePoints[i], biomePoints[j]);
                         if (distance <= connectionDistance)
                         {
                             connections.Add((i, j));
@@ -320,7 +295,7 @@ namespace LandOfTheConsumers.Procedural
         private void BuildRegionGroups()
         {
             // Initialize: each point is its own region
-            for (int i = 0; i < chunkPoints.Count; i++)
+            for (int i = 0; i < biomePoints.Count; i++)
             {
                 pointToRegionID[i] = i;
             }
@@ -334,7 +309,7 @@ namespace LandOfTheConsumers.Procedural
                 // Merge regions by setting all points in regionB to regionA
                 if (regionA != regionB)
                 {
-                    for (int i = 0; i < chunkPoints.Count; i++)
+                    for (int i = 0; i < biomePoints.Count; i++)
                     {
                         if (pointToRegionID[i] == regionB)
                         {
@@ -343,6 +318,29 @@ namespace LandOfTheConsumers.Procedural
                     }
                 }
             }
+
+            // Renumber regions to be sequential (0, 1, 2, 3...)
+            HashSet<int> uniqueRegionIDs = new HashSet<int>();
+            foreach (var regionID in pointToRegionID.Values)
+            {
+                uniqueRegionIDs.Add(regionID);
+            }
+
+            // Create mapping from old IDs to new sequential IDs
+            Dictionary<int, int> oldToNewID = new Dictionary<int, int>();
+            int newID = 0;
+            foreach (var oldID in uniqueRegionIDs)
+            {
+                oldToNewID[oldID] = newID;
+                newID++;
+            }
+
+            // Update all points to use new sequential IDs
+            List<int> keys = new List<int>(pointToRegionID.Keys);
+            foreach (int pointIndex in keys)
+            {
+                pointToRegionID[pointIndex] = oldToNewID[pointToRegionID[pointIndex]];
+            }
         }
 
         private int FindRegion(int pointIndex)
@@ -350,10 +348,10 @@ namespace LandOfTheConsumers.Procedural
             return pointToRegionID[pointIndex];
         }
 
-        private void DrawChunkPoints(Color[] pixels, int textureWidth, int textureHeight, int worldWidth, int worldHeight)
+        private void DrawBiomePoints(Color[] pixels, int textureWidth, int textureHeight, int worldWidth, int worldHeight)
         {
             // Draw yellow markers at all point locations
-            foreach (var point in chunkPoints)
+            foreach (var point in biomePoints)
             {
                 // Convert world position to pixel position
                 int pixelX = Mathf.RoundToInt(point.x * pixelsPerUnit);
@@ -387,8 +385,8 @@ namespace LandOfTheConsumers.Procedural
             // Draw red lines between connected points
             foreach (var connection in connections)
             {
-                Vector2 pointA = chunkPoints[connection.Item1];
-                Vector2 pointB = chunkPoints[connection.Item2];
+                Vector2 pointA = biomePoints[connection.Item1];
+                Vector2 pointB = biomePoints[connection.Item2];
 
                 // Convert to pixel coordinates
                 int x0 = Mathf.RoundToInt(pointA.x * pixelsPerUnit);
@@ -435,25 +433,40 @@ namespace LandOfTheConsumers.Procedural
             }
         }
 
-        private Vector2? GetChunkPointForVisualization(int chunkX, int chunkY)
+        private Vector2? GetBiomePointForVisualization(int biomeX, int biomeY)
         {
-            // Same logic as NoiseGenerator.GetChunkPoint to match the noise generation
-            int chunkSeed = seed;
-            chunkSeed ^= chunkX.GetHashCode();
-            chunkSeed = (chunkSeed << 5) + chunkSeed + chunkY.GetHashCode();
+            // Same logic as NoiseGenerator.GetBiomePoint to match the noise generation
+            int biomeSeed = seed;
+            biomeSeed ^= biomeX.GetHashCode();
+            biomeSeed = (biomeSeed << 5) + biomeSeed + biomeY.GetHashCode();
 
-            System.Random random = new System.Random(chunkSeed);
+            System.Random random = new System.Random(biomeSeed);
 
-            // 10% chance this chunk has no point
+            // 10% chance this biome has no point
             if (random.NextDouble() < 0.1)
             {
                 return null;
             }
 
-            // Generate random point within the chunk
-            float offsetX = (float)random.NextDouble() * chunkSize;
-            float offsetY = (float)random.NextDouble() * chunkSize;
-            return new Vector2(chunkX * chunkSize + offsetX, chunkY * chunkSize + offsetY);
+            // Generate random point within the biome, but never in the exact middle
+            // Use polar coordinates to ensure point is at least a certain distance from center
+            float centerX = biomeSize * 0.5f;
+            float centerY = biomeSize * 0.5f;
+
+            float minDistanceFromCenter = biomeSize * 0.2f; // At least 20% away from center
+            float maxDistanceFromCenter = biomeSize * 0.85f; // Max ~85% (to stay within biome bounds)
+
+            // Random angle (0 to 2π)
+            float angle = (float)(random.NextDouble() * 2.0 * Mathf.PI);
+
+            // Random distance between min and max
+            float distance = minDistanceFromCenter + (float)random.NextDouble() * (maxDistanceFromCenter - minDistanceFromCenter);
+
+            // Convert polar to cartesian and add to center
+            float offsetX = centerX + distance * Mathf.Cos(angle);
+            float offsetY = centerY + distance * Mathf.Sin(angle);
+
+            return new Vector2(biomeX * biomeSize + offsetX, biomeY * biomeSize + offsetY);
         }
 
         private void CreatePlaneMesh(int worldWidth, int worldHeight)
@@ -461,13 +474,16 @@ namespace LandOfTheConsumers.Procedural
             Mesh mesh = new Mesh();
             mesh.name = "Cellular Noise Plane";
 
-            // Create a simple quad
+            // Create a simple quad centered at origin
+            float halfWidth = worldWidth * 0.5f;
+            float halfHeight = worldHeight * 0.5f;
+
             Vector3[] vertices = new Vector3[4]
             {
-                new Vector3(0, 0, 0),
-                new Vector3(worldWidth, 0, 0),
-                new Vector3(0, 0, worldHeight),
-                new Vector3(worldWidth, 0, worldHeight)
+                new Vector3(-halfWidth, 0, -halfHeight),
+                new Vector3(halfWidth, 0, -halfHeight),
+                new Vector3(-halfWidth, 0, halfHeight),
+                new Vector3(halfWidth, 0, halfHeight)
             };
 
             Vector2[] uv = new Vector2[4]
@@ -503,37 +519,41 @@ namespace LandOfTheConsumers.Procedural
         private void OnDrawGizmosSelected()
         {
             // Calculate world size
-            float worldWidth = worldSizeInChunks.x * chunkSize;
-            float worldHeight = worldSizeInChunks.y * chunkSize;
+            float worldWidth = worldSizeInBiomes.x * biomeSize;
+            float worldHeight = worldSizeInBiomes.y * biomeSize;
+            float halfWidth = worldWidth * 0.5f;
+            float halfHeight = worldHeight * 0.5f;
 
-            // Draw world bounds
+            // Draw world bounds centered at origin
             Gizmos.color = Color.cyan;
-            Vector3 center = transform.position + new Vector3(worldWidth * 0.5f, 0, worldHeight * 0.5f);
+            Vector3 center = transform.position;
             Vector3 size = new Vector3(worldWidth, 0.1f, worldHeight);
             Gizmos.DrawWireCube(center, size);
 
-            // Draw chunk grid
+            // Draw biome grid centered at origin
             Gizmos.color = new Color(0, 1, 1, 0.3f);
-            for (int x = 0; x <= worldSizeInChunks.x; x++)
+            for (int x = 0; x <= worldSizeInBiomes.x; x++)
             {
-                Vector3 start = transform.position + new Vector3(x * chunkSize, 0, 0);
-                Vector3 end = transform.position + new Vector3(x * chunkSize, 0, worldHeight);
+                float xPos = x * biomeSize - halfWidth;
+                Vector3 start = transform.position + new Vector3(xPos, 0, -halfHeight);
+                Vector3 end = transform.position + new Vector3(xPos, 0, halfHeight);
                 Gizmos.DrawLine(start, end);
             }
-            for (int z = 0; z <= worldSizeInChunks.y; z++)
+            for (int z = 0; z <= worldSizeInBiomes.y; z++)
             {
-                Vector3 start = transform.position + new Vector3(0, 0, z * chunkSize);
-                Vector3 end = transform.position + new Vector3(worldWidth, 0, z * chunkSize);
+                float zPos = z * biomeSize - halfHeight;
+                Vector3 start = transform.position + new Vector3(-halfWidth, 0, zPos);
+                Vector3 end = transform.position + new Vector3(halfWidth, 0, zPos);
                 Gizmos.DrawLine(start, end);
             }
 
             // Generate temporary point list for gizmo visualization
             List<Vector2> gizmoPoints = new List<Vector2>();
-            for (int chunkY = 0; chunkY < worldSizeInChunks.y; chunkY++)
+            for (int biomeY = 0; biomeY < worldSizeInBiomes.y; biomeY++)
             {
-                for (int chunkX = 0; chunkX < worldSizeInChunks.x; chunkX++)
+                for (int biomeX = 0; biomeX < worldSizeInBiomes.x; biomeX++)
                 {
-                    Vector2? point = GetChunkPointForVisualization(chunkX, chunkY);
+                    Vector2? point = GetBiomePointForVisualization(biomeX, biomeY);
                     if (point.HasValue)
                     {
                         gizmoPoints.Add(point.Value);
@@ -541,23 +561,23 @@ namespace LandOfTheConsumers.Procedural
                 }
             }
 
-            // Draw yellow spheres at chunk points
+            // Draw yellow spheres at biome points (centered)
             Gizmos.color = Color.yellow;
             foreach (var point in gizmoPoints)
             {
-                Vector3 worldPos = transform.position + new Vector3(point.x, 0.5f, point.y);
+                Vector3 worldPos = transform.position + new Vector3(point.x - halfWidth, 0.5f, point.y - halfHeight);
                 Gizmos.DrawSphere(worldPos, 0.5f);
             }
 
 #if UNITY_EDITOR
             // Draw region numbers at center of mass
-            if (showRegionNumbers && chunkPoints != null && chunkPoints.Count > 0 && pointToRegionID != null && pointToRegionID.Count > 0)
+            if (showRegionNumbers && biomePoints != null && biomePoints.Count > 0 && pointToRegionID != null && pointToRegionID.Count > 0)
             {
                 // Calculate center of mass for each unique region
                 Dictionary<int, Vector2> regionCenters = new Dictionary<int, Vector2>();
                 Dictionary<int, int> regionPointCounts = new Dictionary<int, int>();
 
-                for (int i = 0; i < chunkPoints.Count; i++)
+                for (int i = 0; i < biomePoints.Count; i++)
                 {
                     int regionID = pointToRegionID[i];
 
@@ -567,7 +587,7 @@ namespace LandOfTheConsumers.Procedural
                         regionPointCounts[regionID] = 0;
                     }
 
-                    regionCenters[regionID] += chunkPoints[i];
+                    regionCenters[regionID] += biomePoints[i];
                     regionPointCounts[regionID]++;
                 }
 
@@ -577,7 +597,7 @@ namespace LandOfTheConsumers.Procedural
                     int regionID = kvp.Key;
                     Vector2 regionCenter = kvp.Value / (float)regionPointCounts[regionID];
 
-                    Vector3 worldPos = transform.position + new Vector3(regionCenter.x, 1f, regionCenter.y);
+                    Vector3 worldPos = transform.position + new Vector3(regionCenter.x - halfWidth, 1f, regionCenter.y - halfHeight);
 
                     // Draw white text with black outline for visibility
                     GUIStyle style = new GUIStyle();

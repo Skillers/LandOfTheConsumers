@@ -22,8 +22,9 @@ namespace LandOfTheConsumers.Procedural
             GUI.backgroundColor = Color.white;
 
             // Calculate and show world info
-            int worldWidth = visualizer.worldSizeInChunks.x * visualizer.chunkSize;
-            int worldHeight = visualizer.worldSizeInChunks.y * visualizer.chunkSize;
+            const int biomeSize = 128;
+            int worldWidth = visualizer.worldSizeInBiomes.x * biomeSize;
+            int worldHeight = visualizer.worldSizeInBiomes.y * biomeSize;
             int textureWidth = worldWidth * visualizer.pixelsPerUnit;
             int textureHeight = worldHeight * visualizer.pixelsPerUnit;
 
@@ -41,7 +42,7 @@ namespace LandOfTheConsumers.Procedural
 
             EditorGUILayout.LabelField($"Current Seed: {visualizer.seed}", EditorStyles.miniLabel);
 
-            if (GUILayout.Button("🎲 Random Seed", GUILayout.Width(120), GUILayout.Height(20)))
+            if (GUILayout.Button("Random Seed", GUILayout.Width(120), GUILayout.Height(20)))
             {
                 Undo.RecordObject(visualizer, "Randomize Seed");
                 visualizer.seed = Random.Range(1, 999999);
@@ -55,17 +56,17 @@ namespace LandOfTheConsumers.Procedural
             EditorGUILayout.LabelField("Quick Guide", EditorStyles.boldLabel);
 
             EditorGUILayout.HelpBox(
-                "Click 'Generate Noise' after changing settings!\n\n" +
-                "CHUNK-BASED CELLULAR NOISE:\n" +
-                "• 90% of chunks have ONE random center point\n" +
-                "• 10% of chunks have NO point (more organic!)\n" +
+                "LIVE UPDATES: Adjust any slider to see instant changes!\n\n" +
+                "BIOME-BASED CELLULAR NOISE:\n" +
+                "• 90% of biomes have ONE random center point\n" +
+                "• 10% of biomes have NO point (more organic!)\n" +
                 "• Darker areas = closer to region centers\n" +
                 "• Lighter areas = farther from region centers\n" +
                 "• YELLOW MARKERS show actual point locations!\n" +
                 "• RED LINES show connected regions\n" +
                 "• WHITE NUMBERS show region IDs (select object to see)\n\n" +
                 "WORLD SIZE:\n" +
-                "• Set chunks (10x10) and chunk size (32)\n" +
+                "• Set biomes (10x10) - each biome is 128x128 units\n" +
                 "• Plane will be created automatically at correct size\n\n" +
                 "PIXELS PER UNIT:\n" +
                 "• Higher = more detailed texture (but slower)\n" +
