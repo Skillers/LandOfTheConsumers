@@ -38,6 +38,9 @@ namespace LandOfTheConsumers.Procedural
         [SerializeField] [Range(0f, 150f)] public float connectionDistance = 50f;
 
         [Header("Display")]
+        [Tooltip("Auto-regenerate on parameter changes (disable for better performance)")]
+        [SerializeField] private bool autoRegenerate = false;
+
         [Tooltip("Log empty biomes to console")]
         [SerializeField] private bool logEmptyBiomes = true;
 
@@ -52,6 +55,7 @@ namespace LandOfTheConsumers.Procedural
         private List<Vector2> biomePoints = new List<Vector2>();
         private List<(int, int)> connections = new List<(int, int)>(); // Pairs of point indices that are connected
         private Dictionary<int, int> pointToRegionID = new Dictionary<int, int>(); // Maps point index to region ID
+        private Dictionary<int, Vector2> regionCenters = new Dictionary<int, Vector2>(); // Cached region centers
 
         private void OnEnable()
         {
@@ -62,8 +66,8 @@ namespace LandOfTheConsumers.Procedural
 #if UNITY_EDITOR
         private void OnValidate()
         {
-            // Auto-regenerate when any parameter changes in the editor
-            if (!Application.isPlaying && isActiveAndEnabled)
+            // Only auto-regenerate if enabled
+            if (autoRegenerate && !Application.isPlaying && isActiveAndEnabled)
             {
                 // Delay slightly to avoid multiple regenerations during rapid changes
                 UnityEditor.EditorApplication.delayCall += () =>
@@ -120,6 +124,7 @@ namespace LandOfTheConsumers.Procedural
             biomePoints.Clear();
             connections.Clear();
             pointToRegionID.Clear();
+            regionCenters.Clear();
 
             // Calculate world size in units
             int worldWidth = worldSizeInBiomes.x * biomeSize;
@@ -130,6 +135,9 @@ namespace LandOfTheConsumers.Procedural
 
             // Build region groups from connections
             BuildRegionGroups();
+
+            // Cache region centers (calculate once, not per pixel!)
+            CacheRegionCenters();
 
             // Calculate texture resolution based on world size and pixels per unit
             int textureWidth = worldWidth * pixelsPerUnit;
@@ -179,28 +187,14 @@ namespace LandOfTheConsumers.Procedural
                         // Get the region ID for this pixel
                         int regionID = pointToRegionID[nearestPointIndex];
 
-                        // Calculate center of mass for the entire region
-                        Vector2 regionCenter = Vector2.zero;
-                        int regionPointCount = 0;
-
-                        for (int i = 0; i < biomePoints.Count; i++)
+                        // Use cached region center
+                        if (regionCenters.TryGetValue(regionID, out Vector2 regionCenter))
                         {
-                            if (pointToRegionID[i] == regionID)
-                            {
-                                regionCenter += biomePoints[i];
-                                regionPointCount++;
-                            }
-                        }
-
-                        if (regionPointCount > 0)
-                        {
-                            regionCenter /= regionPointCount;
-
                             // Calculate distance from pixel to region center
                             float distanceToRegionCenter = Vector2.Distance(pixelPos, regionCenter);
 
                             // Normalize the distance for grayscale
-                            float maxDist = biomeSize * 1.5f * Mathf.Sqrt(regionPointCount); // Scale by region size
+                            float maxDist = biomeSize * 1.5f;
                             float noise = Mathf.Clamp01(distanceToRegionCenter / maxDist);
 
                             // Convert to grayscale color
@@ -382,6 +376,36 @@ namespace LandOfTheConsumers.Procedural
         private int FindRegion(int pointIndex)
         {
             return pointToRegionID[pointIndex];
+        }
+
+        private void CacheRegionCenters()
+        {
+            regionCenters.Clear();
+
+            // Count points per region and sum positions
+            Dictionary<int, int> regionPointCounts = new Dictionary<int, int>();
+
+            foreach (var kvp in pointToRegionID)
+            {
+                int pointIndex = kvp.Key;
+                int regionID = kvp.Value;
+
+                if (!regionCenters.ContainsKey(regionID))
+                {
+                    regionCenters[regionID] = Vector2.zero;
+                    regionPointCounts[regionID] = 0;
+                }
+
+                regionCenters[regionID] += biomePoints[pointIndex];
+                regionPointCounts[regionID]++;
+            }
+
+            // Average to get center of mass
+            List<int> regionIDs = new List<int>(regionCenters.Keys);
+            foreach (int regionID in regionIDs)
+            {
+                regionCenters[regionID] /= regionPointCounts[regionID];
+            }
         }
 
         private void DrawBiomePoints(Color[] pixels, int textureWidth, int textureHeight, int worldWidth, int worldHeight)
