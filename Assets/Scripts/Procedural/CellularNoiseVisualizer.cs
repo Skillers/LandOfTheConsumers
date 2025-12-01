@@ -69,14 +69,11 @@ namespace LandOfTheConsumers.Procedural
             // Only auto-regenerate if enabled
             if (autoRegenerate && !Application.isPlaying && isActiveAndEnabled)
             {
-                // Delay slightly to avoid multiple regenerations during rapid changes
-                UnityEditor.EditorApplication.delayCall += () =>
-                {
+             
                     if (this != null)
                     {
                         GenerateNoiseTexture();
                     }
-                };
             }
         }
 #endif
@@ -96,7 +93,7 @@ namespace LandOfTheConsumers.Procedural
             {
                 meshRenderer = gameObject.AddComponent<MeshRenderer>();
 
-                // Create a default unlit material
+
                 Material mat = new Material(Shader.Find("Unlit/Texture"));
                 meshRenderer.sharedMaterial = mat;
             }
@@ -109,12 +106,6 @@ namespace LandOfTheConsumers.Procedural
             if (worldSizeInBiomes.x <= 0 || worldSizeInBiomes.y <= 0)
             {
                 Debug.LogWarning("[CellularNoiseVisualizer] World size must be greater than 0");
-                return;
-            }
-
-            if (biomeSize <= 0)
-            {
-                Debug.LogWarning("[CellularNoiseVisualizer] Biome size must be greater than 0");
                 return;
             }
 

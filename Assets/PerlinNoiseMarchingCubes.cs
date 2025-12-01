@@ -6,10 +6,10 @@ using UnityEngine;
 public class PerlinNoiseMarchingCubes : MonoBehaviour
 {
     public PerlinSettings settings;
+    private const int chunkSize = 32;
 
     private float[,] heightMap;
-    private MeshFilter meshFilter;
-    private MeshRenderer meshRenderer;
+    private List<GameObject> chunks = new List<GameObject>();
 
     private void Start()
     {
@@ -18,10 +18,6 @@ public class PerlinNoiseMarchingCubes : MonoBehaviour
             Debug.LogError("PerlinSettings reference is missing!");
             return;
         }
-
-        meshFilter = gameObject.AddComponent<MeshFilter>();
-        meshRenderer = gameObject.AddComponent<MeshRenderer>();
-        meshRenderer.material = new Material(Shader.Find("Standard"));
 
         GenerateMesh();
     }
@@ -35,9 +31,16 @@ public class PerlinNoiseMarchingCubes : MonoBehaviour
 
     private void GenerateMesh()
     {
-        heightMap = new float[settings.width, settings.height];
+        // Clear existing chunks
+        foreach (var chunk in chunks)
+        {
+            if (chunk != null)
+                DestroyImmediate(chunk);
+        }
+        chunks.Clear();
 
-        // Generate 2D height map using Perlin noise
+        // Generate full height map
+        heightMap = new float[settings.width, settings.height];
         for (int x = 0; x < settings.width; x++)
         {
             for (int y = 0; y < settings.height; y++)
@@ -46,8 +49,38 @@ public class PerlinNoiseMarchingCubes : MonoBehaviour
             }
         }
 
-        // Generate mesh from height map
-        Mesh mesh = CreateTerrainMesh();
+        // Calculate number of chunks needed
+        int chunksX = Mathf.CeilToInt((float)settings.width / chunkSize);
+        int chunksY = Mathf.CeilToInt((float)settings.height / chunkSize);
+
+        // Create chunks
+        for (int chunkX = 0; chunkX < chunksX; chunkX++)
+        {
+            for (int chunkY = 0; chunkY < chunksY; chunkY++)
+            {
+                CreateChunk(chunkX, chunkY);
+            }
+        }
+    }
+
+    private void CreateChunk(int chunkX, int chunkY)
+    {
+        GameObject chunkObj = new GameObject($"Chunk_{chunkX}_{chunkY}");
+        chunkObj.transform.parent = this.transform;
+        chunks.Add(chunkObj);
+
+        MeshFilter meshFilter = chunkObj.AddComponent<MeshFilter>();
+        MeshRenderer meshRenderer = chunkObj.AddComponent<MeshRenderer>();
+        meshRenderer.material = new Material(Shader.Find("Standard"));
+
+        // Calculate start and end positions for this chunk
+        int startX = chunkX * chunkSize;
+        int startY = chunkY * chunkSize;
+        int endX = Mathf.Min(startX + chunkSize, settings.width);
+        int endY = Mathf.Min(startY + chunkSize, settings.height);
+
+        // Generate mesh for this chunk
+        Mesh mesh = CreateChunkMesh(startX, startY, endX, endY);
         meshFilter.mesh = mesh;
     }
 
@@ -69,16 +102,19 @@ public class PerlinNoiseMarchingCubes : MonoBehaviour
         return sample * settings.heightMultiplier;
     }
 
-    private Mesh CreateTerrainMesh()
+    private Mesh CreateChunkMesh(int startX, int startY, int endX, int endY)
     {
         List<Vector3> vertices = new List<Vector3>();
         List<int> triangles = new List<int>();
         List<Color> colors = new List<Color>();
 
-        // Create vertices
-        for (int x = 0; x < settings.width; x++)
+        int chunkWidth = endX - startX;
+        int chunkHeight = endY - startY;
+
+        // Create vertices for this chunk
+        for (int x = startX; x < endX; x++)
         {
-            for (int y = 0; y < settings.height; y++)
+            for (int y = startY; y < endY; y++)
             {
                 float height = heightMap[x, y];
                 Vector3 position = new Vector3(x - settings.width / 2, height, y - settings.height / 2);
@@ -88,15 +124,15 @@ public class PerlinNoiseMarchingCubes : MonoBehaviour
             }
         }
 
-        // Create triangles
-        for (int x = 0; x < settings.width - 1; x++)
+        // Create triangles for this chunk
+        for (int x = 0; x < chunkWidth - 1; x++)
         {
-            for (int y = 0; y < settings.height - 1; y++)
+            for (int y = 0; y < chunkHeight - 1; y++)
             {
-                int topLeft = x * settings.height + y;
-                int topRight = (x + 1) * settings.height + y;
-                int bottomLeft = x * settings.height + (y + 1);
-                int bottomRight = (x + 1) * settings.height + (y + 1);
+                int topLeft = x * chunkHeight + y;
+                int topRight = (x + 1) * chunkHeight + y;
+                int bottomLeft = x * chunkHeight + (y + 1);
+                int bottomRight = (x + 1) * chunkHeight + (y + 1);
 
                 // First triangle
                 triangles.Add(topLeft);
