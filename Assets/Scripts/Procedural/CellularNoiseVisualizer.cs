@@ -341,6 +341,42 @@ namespace LandOfTheConsumers.Procedural
             {
                 pointToRegionID[pointIndex] = oldToNewID[pointToRegionID[pointIndex]];
             }
+
+            // Debug statistics
+            int totalBiomes = worldSizeInBiomes.x * worldSizeInBiomes.y;
+            int biomesWithPoints = biomePoints.Count;
+            int biomesWithoutPoints = totalBiomes - biomesWithPoints;
+            int totalConnections = connections.Count;
+            int totalRegions = uniqueRegionIDs.Count;
+
+            // Count points per region
+            Dictionary<int, int> regionPointCounts = new Dictionary<int, int>();
+            foreach (var regionID in pointToRegionID.Values)
+            {
+                if (!regionPointCounts.ContainsKey(regionID))
+                {
+                    regionPointCounts[regionID] = 0;
+                }
+                regionPointCounts[regionID]++;
+            }
+
+            // Count how many regions have multiple points (are connected)
+            int connectedRegions = 0;
+            int singlePointRegions = 0;
+            foreach (var count in regionPointCounts.Values)
+            {
+                if (count > 1)
+                {
+                    connectedRegions++;
+                }
+                else
+                {
+                    singlePointRegions++;
+                }
+            }
+
+            // Log comprehensive statistics (single line)
+            Debug.Log($"[CellularNoiseVisualizer] Total Biomes: {totalBiomes} | With Points: {biomesWithPoints} | Without Points: {biomesWithoutPoints} | Connections: {totalConnections} | Total Regions: {totalRegions} (Connected: {connectedRegions}, Single: {singlePointRegions})");
         }
 
         private int FindRegion(int pointIndex)
