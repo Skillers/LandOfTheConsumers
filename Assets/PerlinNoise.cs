@@ -11,6 +11,7 @@ public class PerlinNoise : MonoBehaviour
     private GameObject[,] quads;
 
     public GameObject quadPrefab;
+    public float chunkSpawnDelay = 0.1f;
 
     private void Start()
     {
@@ -34,16 +35,23 @@ public class PerlinNoise : MonoBehaviour
         }
         chunks.Clear();
 
+        // Start coroutine to create chunks progressively
+        StartCoroutine(CreateChunksProgressively());
+    }
+
+    private IEnumerator CreateChunksProgressively()
+    {
         // Calculate number of chunks needed
         int chunksX = Mathf.CeilToInt((float)settings.width / chunkSize);
         int chunksY = Mathf.CeilToInt((float)settings.height / chunkSize);
 
-        // Create chunks
+        // Create chunks one at a time
         for (int chunkX = 0; chunkX < chunksX; chunkX++)
         {
             for (int chunkY = 0; chunkY < chunksY; chunkY++)
             {
                 CreateChunk(chunkX, chunkY);
+                yield return new WaitForSeconds(chunkSpawnDelay);
             }
         }
     }
@@ -80,7 +88,7 @@ public class PerlinNoise : MonoBehaviour
         {
             for (int y = 0; y < settings.height; y++)
             {
-                quads[x, y].GetComponent<Renderer>().material.color = CalculateColor(x, y);
+                quads[x, y].GetComponent<MeshRenderer>().material.color = CalculateColor(x, y);
                 quads[x, y].transform.position = new Vector3(quads[x, y].transform.position.x, CalculateHeight(x, y), quads[x, y].transform.position.z);
             }
         }
@@ -88,8 +96,8 @@ public class PerlinNoise : MonoBehaviour
 
     private Vector2 GetCoords(int x, int y)
     {
-        float xCoord = (float)x / settings.width * (settings.scale + settings.widthScale) + settings.offSetX / (settings.scale + settings.widthScale) / 2f;
-        float yCoord = (float)y / settings.height * (settings.scale + settings.heightScale) + settings.offSetY / (settings.scale + settings.heightScale) / 2f;
+        float xCoord = (float)x / settings.width * (settings.scale + settings.xScale) + settings.offSetX / (settings.scale + settings.xScale) / 2f;
+        float yCoord = (float)y / settings.height * (settings.scale + settings.zScale) + settings.offSetY / (settings.scale + settings.zScale) / 2f;
         return new Vector2(xCoord, yCoord);
     }
 

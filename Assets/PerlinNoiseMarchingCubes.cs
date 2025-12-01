@@ -10,6 +10,19 @@ public class PerlinNoiseMarchingCubes : MonoBehaviour
 
     private float[,] heightMap;
     private List<GameObject> chunks = new List<GameObject>();
+    public float chunkSpawnDelay = 0.1f;
+    private bool isGenerating = false;
+    private bool initialGenerationComplete = false;
+
+    // Track previous settings to detect changes
+    private int prevWidth;
+    private int prevHeight;
+    private int prevOffSetX;
+    private int prevOffSetY;
+    private float prevHeightMultiplier;
+    private float prevScale;
+    private float prevXScale;
+    private float prevZScale;
 
     private void Start()
     {
@@ -19,18 +32,50 @@ public class PerlinNoiseMarchingCubes : MonoBehaviour
             return;
         }
 
-        GenerateMesh();
+        CacheSettings();
+        StartCoroutine(GenerateInitialMesh());
     }
 
     private void Update()
     {
-        if (settings == null) return;
+        if (settings == null || isGenerating || !initialGenerationComplete) return;
 
-        GenerateMesh();
+        // Only regenerate if settings have changed
+        if (HasSettingsChanged())
+        {
+            CacheSettings();
+            UpdateAllChunks();
+        }
     }
 
-    private void GenerateMesh()
+    private void CacheSettings()
     {
+        prevWidth = settings.width;
+        prevHeight = settings.height;
+        prevOffSetX = settings.offSetX;
+        prevOffSetY = settings.offSetY;
+        prevHeightMultiplier = settings.heightMultiplier;
+        prevScale = settings.scale;
+        prevXScale = settings.xScale;
+        prevZScale = settings.zScale;
+    }
+
+    private bool HasSettingsChanged()
+    {
+        return prevWidth != settings.width ||
+               prevHeight != settings.height ||
+               prevOffSetX != settings.offSetX ||
+               prevOffSetY != settings.offSetY ||
+               prevHeightMultiplier != settings.heightMultiplier ||
+               prevScale != settings.scale ||
+               prevXScale != settings.xScale ||
+               prevZScale != settings.zScale;
+    }
+
+    private IEnumerator GenerateInitialMesh()
+    {
+        isGenerating = true;
+
         // Clear existing chunks
         foreach (var chunk in chunks)
         {
@@ -53,12 +98,61 @@ public class PerlinNoiseMarchingCubes : MonoBehaviour
         int chunksX = Mathf.CeilToInt((float)settings.width / chunkSize);
         int chunksY = Mathf.CeilToInt((float)settings.height / chunkSize);
 
-        // Create chunks
+        // Create chunks one at a time with delay to prevent lag
         for (int chunkX = 0; chunkX < chunksX; chunkX++)
         {
             for (int chunkY = 0; chunkY < chunksY; chunkY++)
             {
                 CreateChunk(chunkX, chunkY);
+                yield return new WaitForSeconds(chunkSpawnDelay);
+            }
+        }
+
+        isGenerating = false;
+        initialGenerationComplete = true;
+    }
+
+    private void UpdateAllChunks()
+    {
+        // Regenerate height map with new settings
+        heightMap = new float[settings.width, settings.height];
+        for (int x = 0; x < settings.width; x++)
+        {
+            for (int y = 0; y < settings.height; y++)
+            {
+                heightMap[x, y] = CalculateHeight(x, y);
+            }
+        }
+
+        // Update all existing chunks immediately
+        int chunkIndex = 0;
+        int chunksX = Mathf.CeilToInt((float)settings.width / chunkSize);
+        int chunksY = Mathf.CeilToInt((float)settings.height / chunkSize);
+
+        for (int chunkX = 0; chunkX < chunksX; chunkX++)
+        {
+            for (int chunkY = 0; chunkY < chunksY; chunkY++)
+            {
+                if (chunkIndex < chunks.Count && chunks[chunkIndex] != null)
+                {
+                    // Calculate start and end positions for this chunk
+                    int startX = chunkX * chunkSize;
+                    int startY = chunkY * chunkSize;
+                    int endX = Mathf.Min(startX + chunkSize + 1, settings.width);
+                    int endY = Mathf.Min(startY + chunkSize + 1, settings.height);
+
+                    // Update chunk position at its corner coordinates
+                    Vector3 chunkPosition = new Vector3(startX, 0, startY);
+                    chunks[chunkIndex].transform.position = chunkPosition;
+
+                    // Update the mesh for this chunk
+                    MeshFilter meshFilter = chunks[chunkIndex].GetComponent<MeshFilter>();
+                    if (meshFilter != null)
+                    {
+                        meshFilter.mesh = CreateChunkMesh(startX, startY, endX, endY);
+                    }
+                }
+                chunkIndex++;
             }
         }
     }
@@ -69,15 +163,19 @@ public class PerlinNoiseMarchingCubes : MonoBehaviour
         chunkObj.transform.parent = this.transform;
         chunks.Add(chunkObj);
 
+        // Position the chunk at its corner coordinates
+        int startX = chunkX * chunkSize;
+        int startY = chunkY * chunkSize;
+        Vector3 chunkPosition = new Vector3(startX, 0, startY);
+        chunkObj.transform.position = chunkPosition;
+
         MeshFilter meshFilter = chunkObj.AddComponent<MeshFilter>();
         MeshRenderer meshRenderer = chunkObj.AddComponent<MeshRenderer>();
         meshRenderer.material = new Material(Shader.Find("Standard"));
 
-        // Calculate start and end positions for this chunk
-        int startX = chunkX * chunkSize;
-        int startY = chunkY * chunkSize;
-        int endX = Mathf.Min(startX + chunkSize, settings.width);
-        int endY = Mathf.Min(startY + chunkSize, settings.height);
+        // Calculate end positions - include one extra vertex to connect with next chunk
+        int endX = Mathf.Min(startX + chunkSize + 1, settings.width);
+        int endY = Mathf.Min(startY + chunkSize + 1, settings.height);
 
         // Generate mesh for this chunk
         Mesh mesh = CreateChunkMesh(startX, startY, endX, endY);
@@ -86,8 +184,8 @@ public class PerlinNoiseMarchingCubes : MonoBehaviour
 
     private Color CalculateColor(int x, int y)
     {
-        float xCoord = (float)x / settings.width * settings.scale * settings.widthScale + settings.offSetX / (settings.scale * settings.widthScale) / 2f;
-        float yCoord = (float)y / settings.height * settings.scale * settings.heightScale + settings.offSetY / (settings.scale * settings.heightScale) / 2f;
+        float xCoord = (float)x / settings.width * settings.scale * settings.xScale + settings.offSetX / (settings.scale * settings.xScale) / 2f;
+        float yCoord = (float)y / settings.height * settings.scale * settings.zScale + settings.offSetY / (settings.scale * settings.zScale) / 2f;
 
         float sample = Mathf.PerlinNoise(xCoord, yCoord);
         return new Color(sample, sample, sample);
@@ -95,8 +193,8 @@ public class PerlinNoiseMarchingCubes : MonoBehaviour
 
     private float CalculateHeight(int x, int y)
     {
-        float xCoord = (float)x / settings.width * settings.scale * settings.widthScale + settings.offSetX / (settings.scale * settings.widthScale) / 2f;
-        float yCoord = (float)y / settings.height * settings.scale * settings.heightScale + settings.offSetY / (settings.scale * settings.heightScale) / 2f;
+        float xCoord = (float)x / settings.width * settings.scale * settings.xScale + settings.offSetX / (settings.scale * settings.xScale) / 2f;
+        float yCoord = (float)y / settings.height * settings.scale * settings.zScale + settings.offSetY / (settings.scale * settings.zScale) / 2f;
 
         float sample = Mathf.PerlinNoise(xCoord, yCoord);
         return sample * settings.heightMultiplier;
@@ -111,15 +209,16 @@ public class PerlinNoiseMarchingCubes : MonoBehaviour
         int chunkWidth = endX - startX;
         int chunkHeight = endY - startY;
 
-        // Create vertices for this chunk
+        // Create vertices for this chunk in local space
         for (int x = startX; x < endX; x++)
         {
             for (int y = startY; y < endY; y++)
             {
                 float height = heightMap[x, y];
-                Vector3 position = new Vector3(x - settings.width / 2, height, y - settings.height / 2);
+                // Local position relative to chunk (chunk is already positioned in world space)
+                Vector3 localPosition = new Vector3(x - startX, height, y - startY);
 
-                vertices.Add(position);
+                vertices.Add(localPosition);
                 colors.Add(CalculateColor(x, y));
             }
         }
