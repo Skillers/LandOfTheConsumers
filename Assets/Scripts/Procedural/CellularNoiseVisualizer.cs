@@ -215,6 +215,11 @@ namespace LandOfTheConsumers.Procedural
             int emptyBiomeCount = 0;
             List<Vector2Int> emptyBiomes = new List<Vector2Int>();
 
+            // Calculate half dimensions for centered coordinates
+            const int biomeSize = 128;
+            float halfWidth = (worldSizeInBiomes.x * biomeSize) * 0.5f;
+            float halfHeight = (worldSizeInBiomes.y * biomeSize) * 0.5f;
+
             // Generate all biome points
             for (int biomeY = 0; biomeY < worldSizeInBiomes.y; biomeY++)
             {
@@ -225,7 +230,9 @@ namespace LandOfTheConsumers.Procedural
                     if (point.HasValue)
                     {
                         biomePoints.Add(point.Value);
-                        Debug.Log($"[CellularNoiseVisualizer] Biome ({biomeX}, {biomeY}) -> Point ({point.Value.x:F2}, {point.Value.y:F2})");
+                        float centeredX = point.Value.x - halfWidth;
+                        float centeredY = point.Value.y - halfHeight;
+                        Debug.Log($"[CellularNoiseVisualizer] Biome ({biomeX}, {biomeY}) -> Raw: ({point.Value.x:F2}, {point.Value.y:F2}) | Centered: ({centeredX:F2}, {centeredY:F2})");
                     }
                     else
                     {
@@ -365,13 +372,19 @@ namespace LandOfTheConsumers.Procedural
             Debug.Log($"[CellularNoiseVisualizer] Total Biomes: {totalBiomes} | With Points: {biomesWithPoints} | Without Points: {biomesWithoutPoints} | Connections: {totalConnections} | Total Regions: {totalRegions} (Connected: {connectedRegions}, Single: {singlePointRegions})");
 
             // Log each region and its points (before pixels are assigned)
+            const int biomeSize = 128;
+            float halfWidth = (worldSizeInBiomes.x * biomeSize) * 0.5f;
+            float halfHeight = (worldSizeInBiomes.y * biomeSize) * 0.5f;
+
             foreach (var region in regions)
             {
                 System.Text.StringBuilder sb = new System.Text.StringBuilder();
-                sb.Append($"[CellularNoiseVisualizer] Region {region.id} ({region.PointCount} points): ");
+                sb.Append($"[CellularNoiseVisualizer] Region {region.id} ({region.PointCount} points) - Centered: ");
                 for (int i = 0; i < region.points.Count; i++)
                 {
-                    sb.Append($"({region.points[i].x:F2}, {region.points[i].y:F2})");
+                    float centeredX = region.points[i].x - halfWidth;
+                    float centeredY = region.points[i].y - halfHeight;
+                    sb.Append($"({centeredX:F2}, {centeredY:F2})");
                     if (i < region.points.Count - 1)
                     {
                         sb.Append(", ");
