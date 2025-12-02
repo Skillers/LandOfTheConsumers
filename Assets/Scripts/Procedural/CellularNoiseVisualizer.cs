@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using System.Collections.Generic;
 #if UNITY_EDITOR
@@ -55,28 +56,16 @@ namespace LandOfTheConsumers.Procedural
         private List<Vector2> biomePoints = new List<Vector2>();
         private List<(int, int)> connections = new List<(int, int)>(); // Pairs of point indices that are connected
         private Dictionary<int, int> pointToRegionID = new Dictionary<int, int>(); // Maps point index to region ID
-        private Dictionary<int, Vector2> regionCenters = new Dictionary<int, Vector2>(); // Cached region centers
+        private List<CellularRegion> regions = new List<CellularRegion>(); // All regions
+
+        // Public accessor for regions
+        public List<CellularRegion> Regions => regions;
 
         private void OnEnable()
         {
             SetupComponents();
             GenerateNoiseTexture();
         }
-
-#if UNITY_EDITOR
-        private void OnValidate()
-        {
-            // Only auto-regenerate if enabled
-            if (autoRegenerate && !Application.isPlaying && isActiveAndEnabled)
-            {
-             
-                    if (this != null)
-                    {
-                        GenerateNoiseTexture();
-                    }
-            }
-        }
-#endif
 
         private void SetupComponents()
         {
@@ -115,7 +104,7 @@ namespace LandOfTheConsumers.Procedural
             biomePoints.Clear();
             connections.Clear();
             pointToRegionID.Clear();
-            regionCenters.Clear();
+            regions.Clear();
 
             // Calculate world size in units
             int worldWidth = worldSizeInBiomes.x * biomeSize;
@@ -126,9 +115,6 @@ namespace LandOfTheConsumers.Procedural
 
             // Build region groups from connections
             BuildRegionGroups();
-
-            // Cache region centers (calculate once, not per pixel!)
-            CacheRegionCenters();
 
             // Calculate texture resolution based on world size and pixels per unit
             int textureWidth = worldWidth * pixelsPerUnit;
@@ -175,26 +161,20 @@ namespace LandOfTheConsumers.Procedural
 
                     if (nearestPointIndex >= 0)
                     {
-                        // Get the region ID for this pixel
+                        // Use the nearest point directly for distance calculation
+                        Vector2 nearestPoint = biomePoints[nearestPointIndex];
+                        float distanceToNearestPoint = Vector2.Distance(pixelPos, nearestPoint);
+
+                        // Normalize the distance for grayscale
+                        float maxDist = biomeSize * 1.5f;
+                        float noise = Mathf.Clamp01(distanceToNearestPoint / maxDist);
+
+                        // Convert to grayscale color
+                        pixels[y * textureWidth + x] = new Color(noise, noise, noise);
+
+                        // Add this pixel to the region it belongs to
                         int regionID = pointToRegionID[nearestPointIndex];
-
-                        // Use cached region center
-                        if (regionCenters.TryGetValue(regionID, out Vector2 regionCenter))
-                        {
-                            // Calculate distance from pixel to region center
-                            float distanceToRegionCenter = Vector2.Distance(pixelPos, regionCenter);
-
-                            // Normalize the distance for grayscale
-                            float maxDist = biomeSize * 1.5f;
-                            float noise = Mathf.Clamp01(distanceToRegionCenter / maxDist);
-
-                            // Convert to grayscale color
-                            pixels[y * textureWidth + x] = new Color(noise, noise, noise);
-                        }
-                        else
-                        {
-                            pixels[y * textureWidth + x] = Color.white;
-                        }
+                        regions[regionID].AddPixel(new Vector2Int(x, y));
                     }
                     else
                     {
@@ -202,6 +182,12 @@ namespace LandOfTheConsumers.Procedural
                         pixels[y * textureWidth + x] = Color.white;
                     }
                 }
+            }
+
+            // Log pixel counts for each region
+            foreach (var region in regions)
+            {
+                Debug.Log($"[CellularNoiseVisualizer] Region {region.id} has {region.PixelCount} pixels");
             }
 
             // Apply to texture
@@ -239,6 +225,7 @@ namespace LandOfTheConsumers.Procedural
                     if (point.HasValue)
                     {
                         biomePoints.Add(point.Value);
+                        Debug.Log($"[CellularNoiseVisualizer] Biome ({biomeX}, {biomeY}) -> Point ({point.Value.x:F2}, {point.Value.y:F2})");
                     }
                     else
                     {
@@ -327,6 +314,20 @@ namespace LandOfTheConsumers.Procedural
                 pointToRegionID[pointIndex] = oldToNewID[pointToRegionID[pointIndex]];
             }
 
+            // Create CellularRegion objects
+            int numRegions = uniqueRegionIDs.Count;
+            for (int i = 0; i < numRegions; i++)
+            {
+                regions.Add(new CellularRegion(i));
+            }
+
+            // Populate regions with their points
+            for (int i = 0; i < biomePoints.Count; i++)
+            {
+                int regionID = pointToRegionID[i];
+                regions[regionID].AddPoint(biomePoints[i]);
+            }
+
             // Debug statistics
             int totalBiomes = worldSizeInBiomes.x * worldSizeInBiomes.y;
             int biomesWithPoints = biomePoints.Count;
@@ -362,41 +363,27 @@ namespace LandOfTheConsumers.Procedural
 
             // Log comprehensive statistics (single line)
             Debug.Log($"[CellularNoiseVisualizer] Total Biomes: {totalBiomes} | With Points: {biomesWithPoints} | Without Points: {biomesWithoutPoints} | Connections: {totalConnections} | Total Regions: {totalRegions} (Connected: {connectedRegions}, Single: {singlePointRegions})");
+
+            // Log each region and its points (before pixels are assigned)
+            foreach (var region in regions)
+            {
+                System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                sb.Append($"[CellularNoiseVisualizer] Region {region.id} ({region.PointCount} points): ");
+                for (int i = 0; i < region.points.Count; i++)
+                {
+                    sb.Append($"({region.points[i].x:F2}, {region.points[i].y:F2})");
+                    if (i < region.points.Count - 1)
+                    {
+                        sb.Append(", ");
+                    }
+                }
+                Debug.Log(sb.ToString());
+            }
         }
 
         private int FindRegion(int pointIndex)
         {
             return pointToRegionID[pointIndex];
-        }
-
-        private void CacheRegionCenters()
-        {
-            regionCenters.Clear();
-
-            // Count points per region and sum positions
-            Dictionary<int, int> regionPointCounts = new Dictionary<int, int>();
-
-            foreach (var kvp in pointToRegionID)
-            {
-                int pointIndex = kvp.Key;
-                int regionID = kvp.Value;
-
-                if (!regionCenters.ContainsKey(regionID))
-                {
-                    regionCenters[regionID] = Vector2.zero;
-                    regionPointCounts[regionID] = 0;
-                }
-
-                regionCenters[regionID] += biomePoints[pointIndex];
-                regionPointCounts[regionID]++;
-            }
-
-            // Average to get center of mass
-            List<int> regionIDs = new List<int>(regionCenters.Keys);
-            foreach (int regionID in regionIDs)
-            {
-                regionCenters[regionID] /= regionPointCounts[regionID];
-            }
         }
 
         private void DrawBiomePoints(Color[] pixels, int textureWidth, int textureHeight, int worldWidth, int worldHeight)
@@ -516,6 +503,7 @@ namespace LandOfTheConsumers.Procedural
             // Convert polar to cartesian and add to center
             float offsetX = centerX + distance * Mathf.Cos(angle);
             float offsetY = centerY + distance * Mathf.Sin(angle);
+            
 
             return new Vector2(biomeX * biomeSize + offsetX, biomeY * biomeSize + offsetY);
         }
