@@ -18,34 +18,22 @@ namespace LandOfTheConsumers.Procedural
         [Tooltip("Size of each quad representing a pixel")]
         [SerializeField] private float quadSize = 0.5f;
 
-        [Tooltip("Height offset for the quads (Y position) - Used for single region mode")]
-        [SerializeField] private float heightOffset = 1f;
-
         [Tooltip("Color for the region quads - Used for single region mode")]
         [SerializeField] private Color regionColor = Color.cyan;
 
-        [Header("All Regions Random Height Settings")]
-        [Tooltip("Minimum height for random region heights")]
-        [SerializeField] private float minRandomHeight = 0f;
-
-        [Tooltip("Maximum height for random region heights")]
-        [SerializeField] private float maxRandomHeight = 200f;
-
+        [Header("All Regions Settings")]
         [Tooltip("Use random colors for each region in all regions mode")]
         [SerializeField] private bool useRandomColors = true;
 
         [Header("LOD Settings")]
-        [Tooltip("Generate LOD levels for terrain")]
-        [SerializeField] private bool generateLODs = false;
+        [Tooltip("Quad size for LOD 0 (highest detail) - 1/4 quads per level")]
+        private float lod0QuadSize = 0.5f;
 
-        [Tooltip("Quad size for LOD 0 (highest detail)")]
-        [SerializeField] private float lod0QuadSize = 0.5f;
+        [Tooltip("Quad size for LOD 1 (medium detail) - 1/4 quads of LOD 0")]
+        private float lod1QuadSize = 1.0f;
 
-        [Tooltip("Quad size for LOD 1 (medium detail)")]
-        [SerializeField] private float lod1QuadSize = 1.0f;
-
-        [Tooltip("Quad size for LOD 2 (lowest detail)")]
-        [SerializeField] private float lod2QuadSize = 2.0f;
+        [Tooltip("Quad size for LOD 2 (lowest detail) - 1/4 quads of LOD 1")]
+        private float lod2QuadSize = 2.0f;
 
         [Tooltip("Screen relative transition height for LOD 0 to LOD 1")]
         [SerializeField] private float lod0Transition = 0.6f;
@@ -169,10 +157,10 @@ namespace LandOfTheConsumers.Procedural
 
                 // Create quad vertices (centered on the pixel position)
                 int vertexIndex = i * 4;
-                vertices[vertexIndex + 0] = new Vector3(worldX - halfQuad, heightOffset, worldZ - halfQuad);
-                vertices[vertexIndex + 1] = new Vector3(worldX + halfQuad, heightOffset, worldZ - halfQuad);
-                vertices[vertexIndex + 2] = new Vector3(worldX - halfQuad, heightOffset, worldZ + halfQuad);
-                vertices[vertexIndex + 3] = new Vector3(worldX + halfQuad, heightOffset, worldZ + halfQuad);
+                vertices[vertexIndex + 0] = new Vector3(worldX - halfQuad, 0f, worldZ - halfQuad);
+                vertices[vertexIndex + 1] = new Vector3(worldX + halfQuad, 0f, worldZ - halfQuad);
+                vertices[vertexIndex + 2] = new Vector3(worldX - halfQuad, 0f, worldZ + halfQuad);
+                vertices[vertexIndex + 3] = new Vector3(worldX + halfQuad, 0f, worldZ + halfQuad);
 
                 // Set UVs
                 uvs[vertexIndex + 0] = new Vector2(0, 0);
@@ -237,8 +225,8 @@ namespace LandOfTheConsumers.Procedural
                 CellularRegion region = regions[regionIdx];
                 if (region.PixelCount == 0) continue;
 
-                // Random height for this region
-                float regionHeight = Random.Range(minRandomHeight, maxRandomHeight);
+                // All regions at height 0
+                float regionHeight = 0f;
 
                 // Random color for this region
                 Color regionRandomColor;
@@ -259,28 +247,19 @@ namespace LandOfTheConsumers.Procedural
                 }
 
                 // Create GameObject for this region
-                GameObject regionObject = new GameObject($"Region_{regionIdx}_Height_{regionHeight:F1}");
+                GameObject regionObject = new GameObject($"Region_{regionIdx}");
                 regionObject.transform.SetParent(transform);
                 regionObject.transform.localPosition = Vector3.zero;
                 regionObject.transform.localRotation = Quaternion.identity;
                 regionObject.transform.localScale = Vector3.one;
 
-                if (generateLODs)
-                {
-                    // Generate LOD levels
-                    GenerateRegionWithLODs(regionObject, region, regionIdx, regionHeight, regionRandomColor);
-                }
-                else
-                {
-                    // Generate single mesh without LOD
-                    GenerateSingleRegionMesh(regionObject, region, regionIdx, regionHeight, regionRandomColor, quadSize);
-                }
+                // Always generate with LOD levels
+                GenerateRegionWithLODs(regionObject, region, regionIdx, regionHeight, regionRandomColor);
 
                 regionsGenerated++;
             }
 
-            string lodInfo = generateLODs ? " with 3 LOD levels" : "";
-            Debug.Log($"[RegionQuadVisualizer] Generated {regionsGenerated} region objects as children with random heights{lodInfo}");
+            Debug.Log($"[RegionQuadVisualizer] Generated {regionsGenerated} region objects with 3 LOD levels at height 0");
         }
 
         private void GenerateRegionWithLODs(GameObject parentObject, CellularRegion region, int regionIdx, float regionHeight, Color regionColor)
@@ -470,7 +449,7 @@ namespace LandOfTheConsumers.Procedural
                 float halfWidth = worldWidth * 0.5f;
                 float halfHeight = worldHeight * 0.5f;
 
-                Vector3 worldPos = transform.position + new Vector3(point.x - halfWidth, heightOffset + 0.5f, point.y - halfHeight);
+                Vector3 worldPos = transform.position + new Vector3(point.x - halfWidth, 0.5f, point.y - halfHeight);
                 Gizmos.DrawSphere(worldPos, 1f);
             }
         }
