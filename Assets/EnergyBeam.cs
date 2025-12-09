@@ -121,21 +121,10 @@ public class EnergyBeam : NetworkBehaviour
             currentEnergy.Value = startingEnergy;
             Debug.Log($"[EnergyBeam] Server initialized energy to {startingEnergy}");
         }
-
-        // Subscribe to energy changes
-        currentEnergy.OnValueChanged += OnEnergyChanged;
     }
 
-    public override void OnNetworkDespawn()
-    {
-        base.OnNetworkDespawn();
-        currentEnergy.OnValueChanged -= OnEnergyChanged;
-    }
 
-    void OnEnergyChanged(float oldValue, float newValue)
-    {
-        Debug.Log($"[EnergyBeam] Energy changed: {oldValue:F2} -> {newValue:F2}");
-    }
+    
 
     void AddCollider()
     {

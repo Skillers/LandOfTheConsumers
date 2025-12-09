@@ -17,7 +17,7 @@ public class PlayerController : NetworkBehaviour
     
     [Header("Isometric Click-to-Move")]
     public LayerMask groundLayer;
-    public GameObject clickMarker;
+    public GameObject clickMarker; // Purple sphere - shows where player clicked to move (runtime created)
     public Vector3 clickMoveTarget; // Made public so indicator can access it
     public bool isMovingToTarget = false; // Made public so indicator can access it
     private float clickMoveStopDistance = 0.5f;
@@ -36,6 +36,82 @@ public class PlayerController : NetworkBehaviour
     void Start()
     {
         controller = GetComponent<CharacterController>();
+
+        // Create click marker if it doesn't exist
+        if (clickMarker == null)
+        {
+            CreateClickMarker();
+        }
+    }
+
+    void CreateClickMarker()
+    {
+        // Create a sphere as the click marker (purple, size 1)
+        clickMarker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        clickMarker.name = "ClickMarker";
+
+        // Remove collider so it doesn't interfere
+        Destroy(clickMarker.GetComponent<Collider>());
+
+        // Set size to 1
+        clickMarker.transform.localScale = Vector3.one * 1f;
+
+        // Create material with purple color
+        Renderer renderer = clickMarker.GetComponent<Renderer>();
+        Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+
+        // If URP not found, try Standard
+        if (mat.shader.name == "Hidden/InternalErrorShader")
+        {
+            mat = new Material(Shader.Find("Standard"));
+            Debug.Log("[PlayerController] Using Standard shader for click marker");
+        }
+
+        // If Standard not found, try Unlit
+        if (mat.shader.name == "Hidden/InternalErrorShader")
+        {
+            mat = new Material(Shader.Find("Unlit/Color"));
+            Debug.Log("[PlayerController] Using Unlit/Color shader for click marker");
+        }
+
+        // Purple color - RGB(128, 0, 255)
+        Color purple = new Color(0.5f, 0f, 1f, 1f);
+
+        // Set the base color property based on shader
+        if (mat.HasProperty("_BaseColor"))
+        {
+            mat.SetColor("_BaseColor", purple);
+            Debug.Log("[PlayerController] Set _BaseColor to purple");
+        }
+        else if (mat.HasProperty("_Color"))
+        {
+            mat.SetColor("_Color", purple);
+            Debug.Log("[PlayerController] Set _Color to purple");
+        }
+
+        mat.color = purple;
+
+        // Make it emissive for better visibility
+        if (mat.HasProperty("_EmissionColor"))
+        {
+            mat.EnableKeyword("_EMISSION");
+            mat.SetColor("_EmissionColor", purple * 0.3f);
+        }
+
+        // Try to set metallic/smoothness if shader supports it
+        if (mat.HasProperty("_Metallic"))
+            mat.SetFloat("_Metallic", 0f);
+        if (mat.HasProperty("_Glossiness"))
+            mat.SetFloat("_Glossiness", 0.5f);
+        if (mat.HasProperty("_Smoothness"))
+            mat.SetFloat("_Smoothness", 0.5f);
+
+        renderer.material = mat;
+
+        // Start hidden
+        clickMarker.SetActive(false);
+
+        Debug.Log($"[PlayerController] Created purple click marker - Shader: {mat.shader.name}, Color: {mat.color}");
     }
     
     public override void OnNetworkSpawn()

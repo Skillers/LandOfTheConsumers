@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.UI;
 using Unity.Netcode;
 
 public class CameraCrosshairIndicator : MonoBehaviour
@@ -20,26 +19,15 @@ public class CameraCrosshairIndicator : MonoBehaviour
     [Header("Visual Options")]
     public bool showIndicator = true;
     public bool updateEveryFrame = true; // Move with aim point constantly
-    
-    [Header("Isometric UI Crosshair")]
-    public bool showIsometricCrosshair = true;
-    public Color isometricCrosshairColor = Color.white;
-    public float isometricCrosshairSize = 8f;
-    public float isometricCrosshairAlpha = 0.8f;
-    
-    private GameObject indicatorSphere;
-    private Renderer indicatorRenderer;
 
-    // Screen center indicator
-    private GameObject screenCenterIndicator;
+    [Header("Debug - Runtime Created Indicators")]
+    public GameObject indicatorSphere; // Red sphere - shows where char is going/looking
+    public GameObject screenCenterIndicator; // Green sphere - camera center point
+
+    private Renderer indicatorRenderer;
     private Renderer screenCenterRenderer;
     private Vector3 screenCenterHitPoint;
     private bool hasScreenCenterHit = false;
-
-    // UI Crosshair for isometric mode
-    private GameObject crosshairUI;
-    private Image crosshairImage;
-    private Canvas canvas;
     
     void Start()
     {
@@ -51,7 +39,8 @@ public class CameraCrosshairIndicator : MonoBehaviour
 
         CreateIndicator();
         CreateScreenCenterIndicator();
-        CreateIsometricCrosshair();
+
+        Debug.Log("[CameraCrosshairIndicator] Initialized with 2 indicators (red, green).");
     }
     
     void CreateIndicator()
@@ -174,12 +163,6 @@ public class CameraCrosshairIndicator : MonoBehaviour
 
         // Update screen center indicator
         UpdateScreenCenterIndicator();
-
-        // Hide UI crosshair - we don't need it
-        if (crosshairUI != null)
-        {
-            crosshairUI.SetActive(false);
-        }
     }
 
     void FindLocalPlayer()
@@ -220,7 +203,7 @@ public class CameraCrosshairIndicator : MonoBehaviour
             screenCenterIndicator.SetActive(false);
         }
     }
-    
+
     void UpdateIndicatorPosition()
     {
         if (playerController == null)
@@ -284,66 +267,6 @@ public class CameraCrosshairIndicator : MonoBehaviour
                 indicatorSphere.SetActive(false);
             }
         }
-    }
-    
-    void CreateIsometricCrosshair()
-    {
-        // Create Canvas
-        GameObject canvasObj = new GameObject("IsometricCrosshairCanvas");
-        canvas = canvasObj.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 100;
-        
-        CanvasScaler scaler = canvasObj.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920, 1080);
-        
-        canvasObj.AddComponent<GraphicRaycaster>();
-        
-        // Create crosshair dot
-        crosshairUI = new GameObject("IsometricCrosshair");
-        crosshairUI.transform.SetParent(canvasObj.transform, false);
-        
-        crosshairImage = crosshairUI.AddComponent<Image>();
-        
-        // Create a circular texture for the dot
-        Texture2D texture = new Texture2D(32, 32);
-        Color[] pixels = new Color[32 * 32];
-        Vector2 center = new Vector2(16, 16);
-        
-        for (int y = 0; y < 32; y++)
-        {
-            for (int x = 0; x < 32; x++)
-            {
-                float distance = Vector2.Distance(new Vector2(x, y), center);
-                if (distance <= 8f)
-                {
-                    Color col = isometricCrosshairColor;
-                    col.a = isometricCrosshairAlpha;
-                    pixels[y * 32 + x] = col;
-                }
-                else
-                {
-                    pixels[y * 32 + x] = Color.clear;
-                }
-            }
-        }
-        
-        texture.SetPixels(pixels);
-        texture.Apply();
-        
-        Sprite sprite = Sprite.Create(texture, new Rect(0, 0, 32, 32), new Vector2(0.5f, 0.5f));
-        crosshairImage.sprite = sprite;
-        
-        // Position in center and set size
-        RectTransform rectTransform = crosshairUI.GetComponent<RectTransform>();
-        rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
-        rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-        rectTransform.pivot = new Vector2(0.5f, 0.5f);
-        rectTransform.anchoredPosition = Vector2.zero;
-        rectTransform.sizeDelta = new Vector2(isometricCrosshairSize, isometricCrosshairSize);
-        
-        crosshairUI.SetActive(false); // Start hidden
     }
     
     // Public method to get the current aim point (useful for shooting, targeting, etc.)
