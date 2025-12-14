@@ -15,15 +15,6 @@ namespace LandOfTheConsumers.Procedural
             // Generate buttons
             EditorGUILayout.Space(10);
 
-            GUI.backgroundColor = Color.cyan;
-            if (GUILayout.Button("Generate Single Region Quads", GUILayout.Height(40)))
-            {
-                visualizer.GenerateRegionQuads();
-            }
-            GUI.backgroundColor = Color.white;
-
-            EditorGUILayout.Space(5);
-
             GUI.backgroundColor = Color.yellow;
             if (GUILayout.Button("Generate All Regions", GUILayout.Height(40)))
             {
@@ -36,27 +27,34 @@ namespace LandOfTheConsumers.Procedural
 
             EditorGUILayout.HelpBox(
                 "REGION QUAD VISUALIZER:\n\n" +
-                "MODE 1: SINGLE REGION\n" +
+                "USAGE:\n" +
                 "1. Assign a CellularNoiseVisualizer reference\n" +
                 "2. Generate noise on the CellularNoiseVisualizer first\n" +
-                "3. Set the Region Index to visualize (0, 1, 2, etc.)\n" +
-                "4. Click 'Generate Single Region Quads'\n\n" +
-                "MODE 2: ALL REGIONS (with 3 LOD levels)\n" +
-                "1. Assign a CellularNoiseVisualizer reference\n" +
-                "2. Generate noise on the CellularNoiseVisualizer first\n" +
-                "3. Click 'Generate All Regions'\n\n" +
+                "3. (Optional) Assign a PerlinSettings reference that\n" +
+                "   contains your Terrain Noise Presets\n" +
+                "4. Click 'Generate All Regions'\n\n" +
                 "SETTINGS:\n" +
-                "• Quad Size: Size of each pixel quad (default 0.5)\n" +
-                "• Region Color: Color (single region mode)\n" +
-                "• Use Random Colors: Random or HSV colors per region\n\n" +
+                "• Use Random Colors: Random or HSV colors per region\n" +
+                "• Perlin Settings Reference: GameObject with PerlinSettings\n" +
+                "  component that has preset list\n\n" +
+                "REGION NAMING & MAPPING:\n" +
+                "• Each region GameObject: R_{PresetName}_{Index}\n" +
+                "  Example: R_Basic Hills_0, R_Spikes_1\n" +
+                "• Region has RegionTerrainGenerator component\n" +
+                "• Preset mapping stored in the main visualizer's\n" +
+                "  regionPresetMapping dictionary\n\n" +
+                "TERRAIN GENERATION:\n" +
+                "• Region parent has RegionTerrainGenerator component\n" +
+                "• LOD 0 is an empty shell container\n" +
+                "• Terrain chunks generated as children of LOD 0\n" +
+                "• Generates marching cubes terrain at 2 pixels/unit\n" +
+                "• Uses the assigned Perlin preset for generation\n" +
+                "• LOD 1 & 2 use quad-based visualization\n\n" +
                 "LOD LEVELS (Always Active):\n" +
-                "Each region automatically gets 3 LOD levels:\n" +
-                "• LOD 0 (highest detail): Quad size 0.5\n" +
-                "• LOD 1 (medium detail): Quad size 1.0 (1/4 quads)\n" +
-                "• LOD 2 (lowest detail): Quad size 2.0 (1/4 quads)\n" +
-                "• Transition values: Screen % for LOD switching\n\n" +
-                "All regions spawn at height 0. Each LOD level has\n" +
-                "1/4 the quads of the previous level for performance.",
+                "• LOD 0: Full marching cubes terrain (highest detail)\n" +
+                "• LOD 1: Quad mesh with size 1.0 (medium detail)\n" +
+                "• LOD 2: Quad mesh with size 2.0 (lowest detail)\n\n" +
+                "Terrain generates asynchronously in chunks to prevent lag.",
                 MessageType.Info
             );
         }

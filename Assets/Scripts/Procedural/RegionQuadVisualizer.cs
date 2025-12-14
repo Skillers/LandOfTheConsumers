@@ -1,29 +1,26 @@
 using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 
 namespace LandOfTheConsumers.Procedural
 {
     [ExecuteInEditMode]
-    [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
     public class RegionQuadVisualizer : MonoBehaviour
     {
         [Header("Region Selection")]
         [Tooltip("The cellular noise visualizer to get region data from")]
         [SerializeField] private CellularNoiseVisualizer cellularVisualizer;
 
-        [Tooltip("Which region to visualize (region ID) - Used for single region mode")]
-        [SerializeField] private int regionIndex = 0;
-
-        [Header("Quad Settings")]
-        [Tooltip("Size of each quad representing a pixel")]
-        [SerializeField] private float quadSize = 0.5f;
-
-        [Tooltip("Color for the region quads - Used for single region mode")]
-        [SerializeField] private Color regionColor = Color.cyan;
-
         [Header("All Regions Settings")]
         [Tooltip("Use random colors for each region in all regions mode")]
         [SerializeField] private bool useRandomColors = true;
+
+        [Tooltip("Reference to PerlinSettings containing the list of presets to randomly assign")]
+        [SerializeField] private PerlinSettings perlinSettingsReference;
+
+        [Header("Region Preset Mapping")]
+        [Tooltip("Stores which preset is assigned to each region (Region Index -> Preset)")]
+        public Dictionary<int, TerrainNoisePreset> regionPresetMapping = new Dictionary<int, TerrainNoisePreset>();
 
         [Header("LOD Settings")]
         [Tooltip("Quad size for LOD 0 (highest detail) - 1/4 quads per level")]
@@ -43,62 +40,6 @@ namespace LandOfTheConsumers.Procedural
 
         [Tooltip("Screen relative transition height for LOD 2 to culled")]
         [SerializeField] private float lod2Transition = 0.15f;
-
-        private MeshFilter meshFilter;
-        private MeshRenderer meshRenderer;
-
-        private void OnEnable()
-        {
-            SetupComponents();
-        }
-
-        private void SetupComponents()
-        {
-            meshFilter = GetComponent<MeshFilter>();
-            meshRenderer = GetComponent<MeshRenderer>();
-
-            if (meshRenderer.sharedMaterial == null)
-            {
-                Material mat = new Material(Shader.Find("Standard"));
-                mat.color = regionColor;
-                meshRenderer.sharedMaterial = mat;
-            }
-        }
-
-        [ContextMenu("Generate Region Quads")]
-        public void GenerateRegionQuads()
-        {
-            if (cellularVisualizer == null)
-            {
-                Debug.LogError("[RegionQuadVisualizer] CellularNoiseVisualizer is not assigned!");
-                return;
-            }
-
-            // Access the regions list
-            var regions = cellularVisualizer.Regions;
-            if (regions == null || regions.Count == 0)
-            {
-                Debug.LogError("[RegionQuadVisualizer] No regions found! Generate noise first.");
-                return;
-            }
-
-            if (regionIndex < 0 || regionIndex >= regions.Count)
-            {
-                Debug.LogError($"[RegionQuadVisualizer] Region index {regionIndex} is out of range (0-{regions.Count - 1})");
-                return;
-            }
-
-            CellularRegion region = regions[regionIndex];
-            if (region.PixelCount == 0)
-            {
-                Debug.LogWarning($"[RegionQuadVisualizer] Region {regionIndex} has no pixels!");
-                return;
-            }
-
-            Debug.Log($"[RegionQuadVisualizer] Generating {region.PixelCount} quads for region {regionIndex}");
-
-            GenerateMesh(region);
-        }
 
         [ContextMenu("Generate All Regions With Random Heights")]
         public void GenerateAllRegionsWithRandomHeights()
@@ -122,102 +63,27 @@ namespace LandOfTheConsumers.Procedural
             GenerateAllRegionsMesh(regions);
         }
 
-        private void GenerateMesh(CellularRegion region)
-        {
-            int pixelCount = region.PixelCount;
-            int pixelsPerUnit = cellularVisualizer.pixelsPerUnit;
-
-            // Calculate world size to center the mesh
-            Vector2Int worldSizeInBiomes = cellularVisualizer.worldSizeInBiomes;
-            const int biomeSize = 128;
-            float worldWidth = worldSizeInBiomes.x * biomeSize;
-            float worldHeight = worldSizeInBiomes.y * biomeSize;
-            float halfWidth = worldWidth * 0.5f;
-            float halfHeight = worldHeight * 0.5f;
-
-            // Each quad needs 4 vertices and 6 indices (2 triangles)
-            Vector3[] vertices = new Vector3[pixelCount * 4];
-            int[] triangles = new int[pixelCount * 6];
-            Vector2[] uvs = new Vector2[pixelCount * 4];
-            Color[] colors = new Color[pixelCount * 4];
-
-            float halfQuad = quadSize * 0.5f;
-
-            for (int i = 0; i < pixelCount; i++)
-            {
-                Vector2Int pixel = region.pixels[i];
-
-                // Convert pixel coordinates to world coordinates
-                float worldX = (float)pixel.x / pixelsPerUnit;
-                float worldZ = (float)pixel.y / pixelsPerUnit;
-
-                // Center the coordinates
-                worldX -= halfWidth;
-                worldZ -= halfHeight;
-
-                // Create quad vertices (centered on the pixel position)
-                int vertexIndex = i * 4;
-                vertices[vertexIndex + 0] = new Vector3(worldX - halfQuad, 0f, worldZ - halfQuad);
-                vertices[vertexIndex + 1] = new Vector3(worldX + halfQuad, 0f, worldZ - halfQuad);
-                vertices[vertexIndex + 2] = new Vector3(worldX - halfQuad, 0f, worldZ + halfQuad);
-                vertices[vertexIndex + 3] = new Vector3(worldX + halfQuad, 0f, worldZ + halfQuad);
-
-                // Set UVs
-                uvs[vertexIndex + 0] = new Vector2(0, 0);
-                uvs[vertexIndex + 1] = new Vector2(1, 0);
-                uvs[vertexIndex + 2] = new Vector2(0, 1);
-                uvs[vertexIndex + 3] = new Vector2(1, 1);
-
-                // Set colors
-                colors[vertexIndex + 0] = regionColor;
-                colors[vertexIndex + 1] = regionColor;
-                colors[vertexIndex + 2] = regionColor;
-                colors[vertexIndex + 3] = regionColor;
-
-                // Create triangles
-                int triangleIndex = i * 6;
-                triangles[triangleIndex + 0] = vertexIndex + 0;
-                triangles[triangleIndex + 1] = vertexIndex + 2;
-                triangles[triangleIndex + 2] = vertexIndex + 1;
-                triangles[triangleIndex + 3] = vertexIndex + 2;
-                triangles[triangleIndex + 4] = vertexIndex + 3;
-                triangles[triangleIndex + 5] = vertexIndex + 1;
-            }
-
-            // Create mesh
-            Mesh mesh = new Mesh();
-            mesh.name = $"Region {regionIndex} Quads";
-
-            // Check if we need to use 32-bit indices
-            if (vertices.Length > 65535)
-            {
-                mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-            }
-
-            mesh.vertices = vertices;
-            mesh.triangles = triangles;
-            mesh.uv = uvs;
-            mesh.colors = colors;
-            mesh.RecalculateNormals();
-            mesh.RecalculateBounds();
-
-            meshFilter.mesh = mesh;
-
-            // Update material color
-            if (meshRenderer.sharedMaterial != null)
-            {
-                meshRenderer.sharedMaterial.color = regionColor;
-            }
-
-            Debug.Log($"[RegionQuadVisualizer] Generated mesh with {vertices.Length} vertices, {triangles.Length / 3} triangles for region {regionIndex}");
-        }
-
         private void GenerateAllRegionsMesh(List<CellularRegion> regions)
         {
             // Clean up existing child objects
             ClearChildRegions();
 
+            // Clear existing preset mapping
+            regionPresetMapping.Clear();
+
             int regionsGenerated = 0;
+
+            // Get preset list from referenced PerlinSettings
+            List<TerrainNoisePreset> availablePresets = null;
+            if (perlinSettingsReference != null && perlinSettingsReference.terrainNoisePresets != null && perlinSettingsReference.terrainNoisePresets.Count > 0)
+            {
+                availablePresets = perlinSettingsReference.terrainNoisePresets;
+                Debug.Log($"[RegionQuadVisualizer] Found {availablePresets.Count} Perlin Presets from PerlinSettings reference");
+            }
+            else
+            {
+                Debug.LogWarning("[RegionQuadVisualizer] No PerlinSettings reference assigned or it has no presets! All regions will use 'Default' naming.");
+            }
 
             // Generate a separate GameObject for each region
             for (int regionIdx = 0; regionIdx < regions.Count; regionIdx++)
@@ -227,6 +93,30 @@ namespace LandOfTheConsumers.Procedural
 
                 // All regions at height 0
                 float regionHeight = 0f;
+
+                // Randomly select a Perlin Settings Preset
+                TerrainNoisePreset selectedPreset = null;
+                string presetName = "Default";
+                if (availablePresets != null && availablePresets.Count > 0)
+                {
+                    selectedPreset = availablePresets[Random.Range(0, availablePresets.Count)];
+                    if (selectedPreset != null)
+                    {
+                        if (!string.IsNullOrEmpty(selectedPreset.presetName))
+                        {
+                            presetName = selectedPreset.presetName;
+                            Debug.Log($"[RegionQuadVisualizer] Region {regionIdx} assigned preset: {presetName}");
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"[RegionQuadVisualizer] Region {regionIdx}: Selected preset has empty presetName field!");
+                        }
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[RegionQuadVisualizer] Region {regionIdx}: Selected preset is null!");
+                    }
+                }
 
                 // Random color for this region
                 Color regionRandomColor;
@@ -246,15 +136,32 @@ namespace LandOfTheConsumers.Procedural
                     regionRandomColor = Color.HSVToRGB(hue, 0.8f, 0.9f);
                 }
 
-                // Create GameObject for this region
-                GameObject regionObject = new GameObject($"Region_{regionIdx}");
+                // Create GameObject for this region with preset name
+                GameObject regionObject = new GameObject($"R_{presetName}_{regionIdx}");
                 regionObject.transform.SetParent(transform);
                 regionObject.transform.localPosition = Vector3.zero;
                 regionObject.transform.localRotation = Quaternion.identity;
                 regionObject.transform.localScale = Vector3.one;
 
+                // Store the preset mapping in the main visualizer
+                if (selectedPreset != null)
+                {
+                    regionPresetMapping[regionIdx] = selectedPreset;
+                    Debug.Log($"[RegionQuadVisualizer] Stored preset '{presetName}' for region {regionIdx}");
+                }
+
+                // Add RegionTerrainGenerator to the region parent if preset is assigned
+                RegionTerrainGenerator terrainGenerator = null;
+                if (selectedPreset != null)
+                {
+                    terrainGenerator = regionObject.AddComponent<RegionTerrainGenerator>();
+                    terrainGenerator.regionIndex = regionIdx;
+                    terrainGenerator.assignedPreset = selectedPreset;
+                    terrainGenerator.pixelsPerUnit = 2;
+                }
+
                 // Always generate with LOD levels
-                GenerateRegionWithLODs(regionObject, region, regionIdx, regionHeight, regionRandomColor);
+                GenerateRegionWithLODs(regionObject, region, regionIdx, regionHeight, regionRandomColor, terrainGenerator);
 
                 regionsGenerated++;
             }
@@ -262,12 +169,12 @@ namespace LandOfTheConsumers.Procedural
             Debug.Log($"[RegionQuadVisualizer] Generated {regionsGenerated} region objects with 3 LOD levels at height 0");
         }
 
-        private void GenerateRegionWithLODs(GameObject parentObject, CellularRegion region, int regionIdx, float regionHeight, Color regionColor)
+        private void GenerateRegionWithLODs(GameObject parentObject, CellularRegion region, int regionIdx, float regionHeight, Color regionColor, RegionTerrainGenerator terrainGenerator)
         {
             // Add LODGroup component to parent
             LODGroup lodGroup = parentObject.AddComponent<LODGroup>();
 
-            // Create 3 LOD levels
+            // Create 3 LOD levels - LOD0 is just an empty shell
             GameObject lod0Object = new GameObject("LOD0");
             GameObject lod1Object = new GameObject("LOD1");
             GameObject lod2Object = new GameObject("LOD2");
@@ -276,19 +183,79 @@ namespace LandOfTheConsumers.Procedural
             lod1Object.transform.SetParent(parentObject.transform, false);
             lod2Object.transform.SetParent(parentObject.transform, false);
 
-            // Generate meshes for each LOD level
-            Renderer lod0Renderer = GenerateSingleRegionMesh(lod0Object, region, regionIdx, regionHeight, regionColor, lod0QuadSize);
+            // LOD0: Empty shell - terrain chunks will be generated into it
+            Renderer lod0Renderer = null;
+            if (terrainGenerator != null)
+            {
+                // Tell the terrain generator to generate terrain into LOD0
+                terrainGenerator.GenerateTerrain(region, cellularVisualizer, lod0Object);
+
+                // Create a dummy renderer for LOD system (terrain generator creates mesh renderers as children)
+                MeshRenderer dummyRenderer = lod0Object.AddComponent<MeshRenderer>();
+                dummyRenderer.enabled = false; // Disabled - chunks will have their own renderers
+                lod0Renderer = dummyRenderer;
+
+                Debug.Log($"[RegionQuadVisualizer] LOD0 for region {regionIdx}: Terrain will be generated as children");
+            }
+            else
+            {
+                // Fallback to quad mesh if no terrain generator
+                lod0Renderer = GenerateSingleRegionMesh(lod0Object, region, regionIdx, regionHeight, regionColor, lod0QuadSize);
+                Debug.LogWarning($"[RegionQuadVisualizer] LOD0 for region {regionIdx}: No preset assigned, using quad mesh");
+            }
+
+            // LOD1 and LOD2: Generate quad meshes (lower detail)
             Renderer lod1Renderer = GenerateSingleRegionMesh(lod1Object, region, regionIdx, regionHeight, regionColor, lod1QuadSize);
             Renderer lod2Renderer = GenerateSingleRegionMesh(lod2Object, region, regionIdx, regionHeight, regionColor, lod2QuadSize);
 
             // Setup LOD levels
+            if (terrainGenerator != null)
+            {
+                // For terrain generator LOD0, we need to wait for chunks to be created
+                // Start a coroutine to update LOD group after terrain generation
+                StartCoroutine(UpdateLODGroupAfterTerrainGeneration(lodGroup, lod0Object, lod1Renderer, lod2Renderer));
+            }
+            else
+            {
+                // Standard LOD setup for quad-based rendering
+                LOD[] lods = new LOD[3];
+                lods[0] = new LOD(lod0Transition, new Renderer[] { lod0Renderer });
+                lods[1] = new LOD(lod1Transition, new Renderer[] { lod1Renderer });
+                lods[2] = new LOD(lod2Transition, new Renderer[] { lod2Renderer });
+
+                lodGroup.SetLODs(lods);
+                lodGroup.RecalculateBounds();
+            }
+        }
+
+        private IEnumerator UpdateLODGroupAfterTerrainGeneration(LODGroup lodGroup, GameObject lod0Object, Renderer lod1Renderer, Renderer lod2Renderer)
+        {
+            // Wait a frame for the terrain generation to start
+            yield return null;
+
+            // Wait for terrain generation to complete (check if chunks exist in LOD0)
+            // Chunks are generated as children of LOD0
+            while (lod0Object.transform.childCount == 0)
+            {
+                yield return new WaitForSeconds(0.5f);
+            }
+
+            // Wait a bit more to ensure all chunks are created
+            yield return new WaitForSeconds(1f);
+
+            // Collect all child renderers from LOD0 (the terrain chunks)
+            Renderer[] lod0Renderers = lod0Object.GetComponentsInChildren<MeshRenderer>();
+
+            // Setup LOD levels with collected renderers
             LOD[] lods = new LOD[3];
-            lods[0] = new LOD(lod0Transition, new Renderer[] { lod0Renderer });
+            lods[0] = new LOD(lod0Transition, lod0Renderers);
             lods[1] = new LOD(lod1Transition, new Renderer[] { lod1Renderer });
             lods[2] = new LOD(lod2Transition, new Renderer[] { lod2Renderer });
 
             lodGroup.SetLODs(lods);
             lodGroup.RecalculateBounds();
+
+            Debug.Log($"[RegionQuadVisualizer] Updated LOD group with {lod0Renderers.Length} terrain chunk renderers for LOD0");
         }
 
         private Renderer GenerateSingleRegionMesh(GameObject targetObject, CellularRegion region, int regionIdx, float regionHeight, Color regionColor, float meshQuadSize)
@@ -426,31 +393,6 @@ namespace LandOfTheConsumers.Procedural
                 {
                     DestroyImmediate(child.gameObject);
                 }
-            }
-        }
-
-        private void OnDrawGizmosSelected()
-        {
-            if (cellularVisualizer == null) return;
-
-            var regions = cellularVisualizer.Regions;
-            if (regions == null || regionIndex < 0 || regionIndex >= regions.Count) return;
-
-            CellularRegion region = regions[regionIndex];
-
-            // Draw the points that belong to this region
-            Gizmos.color = Color.yellow;
-            foreach (var point in region.points)
-            {
-                Vector2Int worldSizeInBiomes = cellularVisualizer.worldSizeInBiomes;
-                const int biomeSize = 128;
-                float worldWidth = worldSizeInBiomes.x * biomeSize;
-                float worldHeight = worldSizeInBiomes.y * biomeSize;
-                float halfWidth = worldWidth * 0.5f;
-                float halfHeight = worldHeight * 0.5f;
-
-                Vector3 worldPos = transform.position + new Vector3(point.x - halfWidth, 0.5f, point.y - halfHeight);
-                Gizmos.DrawSphere(worldPos, 1f);
             }
         }
     }
