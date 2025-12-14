@@ -1,6 +1,9 @@
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 namespace LandOfTheConsumers.Procedural
 {
@@ -41,6 +44,37 @@ namespace LandOfTheConsumers.Procedural
         [Tooltip("Screen relative transition height for LOD 2 to culled")]
         [SerializeField] private float lod2Transition = 0.15f;
 
+        // Queue system for sequential region spawning
+        private class RegionGenerationData
+        {
+            public CellularRegion region;
+            public int regionIndex;
+            public float regionHeight;
+            public Color regionColor;
+            public TerrainNoisePreset selectedPreset;
+            public string presetName;
+            public GameObject regionObject;
+            public GameObject lod0Object;
+            public GameObject lod1Object;
+            public GameObject lod2Object;
+            public RegionTerrainGenerator terrainGeneratorLOD0;
+            public RegionTerrainGenerator terrainGeneratorLOD1;
+            public RegionTerrainGenerator terrainGeneratorLOD2;
+            public LODGroup lodGroup;
+        }
+
+        private class LODGenerationTask
+        {
+            public RegionGenerationData regionData;
+            public int lodLevel; // 0, 1, or 2
+            public RegionTerrainGenerator generator;
+            public GameObject targetObject;
+        }
+
+        private Queue<RegionGenerationData> regionQueue = new Queue<RegionGenerationData>();
+        private Queue<LODGenerationTask> lodQueue = new Queue<LODGenerationTask>();
+        private bool isProcessingQueue = false;
+
         [ContextMenu("Generate All Regions With Random Heights")]
         public void GenerateAllRegionsWithRandomHeights()
         {
@@ -68,10 +102,9 @@ namespace LandOfTheConsumers.Procedural
             // Clean up existing child objects
             ClearChildRegions();
 
-            // Clear existing preset mapping
+            // Clear existing preset mapping and queue
             regionPresetMapping.Clear();
-
-            int regionsGenerated = 0;
+            regionQueue.Clear();
 
             // Get preset list from referenced PerlinSettings
             List<TerrainNoisePreset> availablePresets = null;
@@ -85,7 +118,7 @@ namespace LandOfTheConsumers.Procedural
                 Debug.LogWarning("[RegionQuadVisualizer] No PerlinSettings reference assigned or it has no presets! All regions will use 'Default' naming.");
             }
 
-            // Generate a separate GameObject for each region
+            // Build queue of regions to generate
             for (int regionIdx = 0; regionIdx < regions.Count; regionIdx++)
             {
                 CellularRegion region = regions[regionIdx];
@@ -136,13 +169,6 @@ namespace LandOfTheConsumers.Procedural
                     regionRandomColor = Color.HSVToRGB(hue, 0.8f, 0.9f);
                 }
 
-                // Create GameObject for this region with preset name
-                GameObject regionObject = new GameObject($"R_{presetName}_{regionIdx}");
-                regionObject.transform.SetParent(transform);
-                regionObject.transform.localPosition = Vector3.zero;
-                regionObject.transform.localRotation = Quaternion.identity;
-                regionObject.transform.localScale = Vector3.one;
-
                 // Store the preset mapping in the main visualizer
                 if (selectedPreset != null)
                 {
@@ -150,113 +176,204 @@ namespace LandOfTheConsumers.Procedural
                     Debug.Log($"[RegionQuadVisualizer] Stored preset '{presetName}' for region {regionIdx}");
                 }
 
-                // Add RegionTerrainGenerator to the region parent if preset is assigned
-                RegionTerrainGenerator terrainGenerator = null;
-                if (selectedPreset != null)
+                // Add to queue instead of generating immediately
+                RegionGenerationData data = new RegionGenerationData
                 {
-                    terrainGenerator = regionObject.AddComponent<RegionTerrainGenerator>();
-                    terrainGenerator.regionIndex = regionIdx;
-                    terrainGenerator.assignedPreset = selectedPreset;
-                    terrainGenerator.pixelsPerUnit = 2;
+                    region = region,
+                    regionIndex = regionIdx,
+                    regionHeight = regionHeight,
+                    regionColor = regionRandomColor,
+                    selectedPreset = selectedPreset,
+                    presetName = presetName
+                };
+                regionQueue.Enqueue(data);
+            }
+
+            Debug.Log($"[RegionQuadVisualizer] Queued {regionQueue.Count} regions for LOD-based generation");
+
+            // Start processing the queue
+            if (!isProcessingQueue && regionQueue.Count > 0)
+            {
+                StartCoroutine(ProcessRegionQueueWithLODPriority());
+            }
+        }
+
+        private IEnumerator ProcessRegionQueueWithLODPriority()
+        {
+            isProcessingQueue = true;
+            int totalRegions = regionQueue.Count;
+            List<RegionGenerationData> allRegionData = new List<RegionGenerationData>();
+
+            Debug.Log($"[RegionQuadVisualizer] Creating {totalRegions} region hierarchies");
+
+            // Phase 1: Create all region GameObjects and setup their hierarchy (no terrain generation yet)
+            int regionCount = 0;
+            while (regionQueue.Count > 0)
+            {
+                RegionGenerationData data = regionQueue.Dequeue();
+                regionCount++;
+
+                Debug.Log($"[RegionQuadVisualizer] Setting up region {regionCount}/{totalRegions} (Index: {data.regionIndex})");
+
+                // Create GameObject for this region
+                data.regionObject = new GameObject($"R_{data.presetName}_{data.regionIndex}");
+                data.regionObject.transform.SetParent(transform);
+                data.regionObject.transform.localPosition = Vector3.zero;
+                data.regionObject.transform.localRotation = Quaternion.identity;
+                data.regionObject.transform.localScale = Vector3.one;
+
+                // Add LODGroup
+                data.lodGroup = data.regionObject.AddComponent<LODGroup>();
+
+                // Create LOD GameObjects
+                data.lod0Object = new GameObject("LOD0");
+                data.lod1Object = new GameObject("LOD1");
+                data.lod2Object = new GameObject("LOD2");
+
+                data.lod0Object.transform.SetParent(data.regionObject.transform, false);
+                data.lod1Object.transform.SetParent(data.regionObject.transform, false);
+                data.lod2Object.transform.SetParent(data.regionObject.transform, false);
+
+                // Create terrain generators if preset is assigned
+                if (data.selectedPreset != null)
+                {
+                    // LOD0: 2 pixels per unit
+                    data.terrainGeneratorLOD0 = data.regionObject.AddComponent<RegionTerrainGenerator>();
+                    data.terrainGeneratorLOD0.regionIndex = data.regionIndex;
+                    data.terrainGeneratorLOD0.assignedPreset = data.selectedPreset;
+                    data.terrainGeneratorLOD0.pixelsPerUnit = 2;
+                    data.terrainGeneratorLOD0.pixelSamplingStep = 1;
+
+                    // LOD1: 1 pixel per unit
+                    data.terrainGeneratorLOD1 = data.regionObject.AddComponent<RegionTerrainGenerator>();
+                    data.terrainGeneratorLOD1.regionIndex = data.regionIndex;
+                    data.terrainGeneratorLOD1.assignedPreset = data.selectedPreset;
+                    data.terrainGeneratorLOD1.pixelsPerUnit = 1;
+                    data.terrainGeneratorLOD1.pixelSamplingStep = 1;
+
+                    // LOD2: 0.5 pixels per unit (sample every 2nd pixel)
+                    data.terrainGeneratorLOD2 = data.regionObject.AddComponent<RegionTerrainGenerator>();
+                    data.terrainGeneratorLOD2.regionIndex = data.regionIndex;
+                    data.terrainGeneratorLOD2.assignedPreset = data.selectedPreset;
+                    data.terrainGeneratorLOD2.pixelsPerUnit = 1;
+                    data.terrainGeneratorLOD2.pixelSamplingStep = 2;
                 }
 
-                // Always generate with LOD levels
-                GenerateRegionWithLODs(regionObject, region, regionIdx, regionHeight, regionRandomColor, terrainGenerator);
+                allRegionData.Add(data);
 
-                regionsGenerated++;
+                yield return null; // Yield after creating each region's hierarchy
             }
 
-            Debug.Log($"[RegionQuadVisualizer] Generated {regionsGenerated} region objects with 3 LOD levels at height 0");
+            Debug.Log($"[RegionQuadVisualizer] Region hierarchies created. Building LOD generation queue...");
+
+            // Phase 2: Build LOD generation queue with priority
+            // Priority: All LOD0s first, then all LOD1s, then all LOD2s
+            lodQueue.Clear();
+
+            // Add all LOD0 tasks
+            foreach (var data in allRegionData)
+            {
+                if (data.terrainGeneratorLOD0 != null)
+                {
+                    lodQueue.Enqueue(new LODGenerationTask
+                    {
+                        regionData = data,
+                        lodLevel = 0,
+                        generator = data.terrainGeneratorLOD0,
+                        targetObject = data.lod0Object
+                    });
+                }
+            }
+
+            // Add all LOD1 tasks
+            foreach (var data in allRegionData)
+            {
+                if (data.terrainGeneratorLOD1 != null)
+                {
+                    lodQueue.Enqueue(new LODGenerationTask
+                    {
+                        regionData = data,
+                        lodLevel = 1,
+                        generator = data.terrainGeneratorLOD1,
+                        targetObject = data.lod1Object
+                    });
+                }
+            }
+
+            // Add all LOD2 tasks
+            foreach (var data in allRegionData)
+            {
+                if (data.terrainGeneratorLOD2 != null)
+                {
+                    lodQueue.Enqueue(new LODGenerationTask
+                    {
+                        regionData = data,
+                        lodLevel = 2,
+                        generator = data.terrainGeneratorLOD2,
+                        targetObject = data.lod2Object
+                    });
+                }
+            }
+
+            Debug.Log($"[RegionQuadVisualizer] LOD generation queue built with {lodQueue.Count} tasks");
+
+            // Phase 3: Process LOD generation queue
+            int tasksProcessed = 0;
+            int totalTasks = lodQueue.Count;
+
+            while (lodQueue.Count > 0)
+            {
+                LODGenerationTask task = lodQueue.Dequeue();
+                tasksProcessed++;
+
+                Debug.Log($"[RegionQuadVisualizer] Generating LOD{task.lodLevel} for region {task.regionData.regionIndex} ({tasksProcessed}/{totalTasks})");
+
+                // Flag to track completion
+                bool generationComplete = false;
+                task.generator.OnGenerationComplete = () => { generationComplete = true; };
+
+                // Start terrain generation
+                task.generator.GenerateTerrain(task.regionData.region, cellularVisualizer, task.targetObject);
+
+                // Wait for this LOD to complete
+                while (!generationComplete)
+                {
+                    #if UNITY_EDITOR
+                    if (!Application.isPlaying)
+                    {
+                        EditorApplication.QueuePlayerLoopUpdate();
+                    }
+                    #endif
+                    yield return null;
+                }
+
+                // After each LOD completes, update the LOD group for that region
+                UpdateLODGroupImmediately(task.regionData);
+
+                Debug.Log($"[RegionQuadVisualizer] LOD{task.lodLevel} for region {task.regionData.regionIndex} completed");
+            }
+
+            isProcessingQueue = false;
+            Debug.Log($"[RegionQuadVisualizer] Completed all LOD generation for {totalRegions} regions");
         }
 
-        private void GenerateRegionWithLODs(GameObject parentObject, CellularRegion region, int regionIdx, float regionHeight, Color regionColor, RegionTerrainGenerator terrainGenerator)
+        private void UpdateLODGroupImmediately(RegionGenerationData data)
         {
-            // Add LODGroup component to parent
-            LODGroup lodGroup = parentObject.AddComponent<LODGroup>();
-
-            // Create 3 LOD levels - LOD0 is just an empty shell
-            GameObject lod0Object = new GameObject("LOD0");
-            GameObject lod1Object = new GameObject("LOD1");
-            GameObject lod2Object = new GameObject("LOD2");
-
-            lod0Object.transform.SetParent(parentObject.transform, false);
-            lod1Object.transform.SetParent(parentObject.transform, false);
-            lod2Object.transform.SetParent(parentObject.transform, false);
-
-            // LOD0: Empty shell - terrain chunks will be generated into it
-            Renderer lod0Renderer = null;
-            if (terrainGenerator != null)
-            {
-                // Tell the terrain generator to generate terrain into LOD0
-                terrainGenerator.GenerateTerrain(region, cellularVisualizer, lod0Object);
-
-                // Create a dummy renderer for LOD system (terrain generator creates mesh renderers as children)
-                MeshRenderer dummyRenderer = lod0Object.AddComponent<MeshRenderer>();
-                dummyRenderer.enabled = false; // Disabled - chunks will have their own renderers
-                lod0Renderer = dummyRenderer;
-
-                Debug.Log($"[RegionQuadVisualizer] LOD0 for region {regionIdx}: Terrain will be generated as children");
-            }
-            else
-            {
-                // Fallback to quad mesh if no terrain generator
-                lod0Renderer = GenerateSingleRegionMesh(lod0Object, region, regionIdx, regionHeight, regionColor, lod0QuadSize);
-                Debug.LogWarning($"[RegionQuadVisualizer] LOD0 for region {regionIdx}: No preset assigned, using quad mesh");
-            }
-
-            // LOD1 and LOD2: Generate quad meshes (lower detail)
-            Renderer lod1Renderer = GenerateSingleRegionMesh(lod1Object, region, regionIdx, regionHeight, regionColor, lod1QuadSize);
-            Renderer lod2Renderer = GenerateSingleRegionMesh(lod2Object, region, regionIdx, regionHeight, regionColor, lod2QuadSize);
+            // Collect current renderers from each LOD level
+            Renderer[] lod0Renderers = data.lod0Object.GetComponentsInChildren<MeshRenderer>();
+            Renderer[] lod1Renderers = data.lod1Object.GetComponentsInChildren<MeshRenderer>();
+            Renderer[] lod2Renderers = data.lod2Object.GetComponentsInChildren<MeshRenderer>();
 
             // Setup LOD levels
-            if (terrainGenerator != null)
-            {
-                // For terrain generator LOD0, we need to wait for chunks to be created
-                // Start a coroutine to update LOD group after terrain generation
-                StartCoroutine(UpdateLODGroupAfterTerrainGeneration(lodGroup, lod0Object, lod1Renderer, lod2Renderer));
-            }
-            else
-            {
-                // Standard LOD setup for quad-based rendering
-                LOD[] lods = new LOD[3];
-                lods[0] = new LOD(lod0Transition, new Renderer[] { lod0Renderer });
-                lods[1] = new LOD(lod1Transition, new Renderer[] { lod1Renderer });
-                lods[2] = new LOD(lod2Transition, new Renderer[] { lod2Renderer });
-
-                lodGroup.SetLODs(lods);
-                lodGroup.RecalculateBounds();
-            }
-        }
-
-        private IEnumerator UpdateLODGroupAfterTerrainGeneration(LODGroup lodGroup, GameObject lod0Object, Renderer lod1Renderer, Renderer lod2Renderer)
-        {
-            // Wait a frame for the terrain generation to start
-            yield return null;
-
-            // Wait for terrain generation to complete (check if chunks exist in LOD0)
-            // Chunks are generated as children of LOD0
-            while (lod0Object.transform.childCount == 0)
-            {
-                yield return new WaitForSeconds(0.5f);
-            }
-
-            // Wait a bit more to ensure all chunks are created
-            yield return new WaitForSeconds(1f);
-
-            // Collect all child renderers from LOD0 (the terrain chunks)
-            Renderer[] lod0Renderers = lod0Object.GetComponentsInChildren<MeshRenderer>();
-
-            // Setup LOD levels with collected renderers
             LOD[] lods = new LOD[3];
-            lods[0] = new LOD(lod0Transition, lod0Renderers);
-            lods[1] = new LOD(lod1Transition, new Renderer[] { lod1Renderer });
-            lods[2] = new LOD(lod2Transition, new Renderer[] { lod2Renderer });
+            lods[0] = new LOD(lod0Transition, lod0Renderers.Length > 0 ? lod0Renderers : new Renderer[0]);
+            lods[1] = new LOD(lod1Transition, lod1Renderers.Length > 0 ? lod1Renderers : new Renderer[0]);
+            lods[2] = new LOD(lod2Transition, lod2Renderers.Length > 0 ? lod2Renderers : new Renderer[0]);
 
-            lodGroup.SetLODs(lods);
-            lodGroup.RecalculateBounds();
-
-            Debug.Log($"[RegionQuadVisualizer] Updated LOD group with {lod0Renderers.Length} terrain chunk renderers for LOD0");
+            data.lodGroup.SetLODs(lods);
+            data.lodGroup.RecalculateBounds();
         }
+
 
         private Renderer GenerateSingleRegionMesh(GameObject targetObject, CellularRegion region, int regionIdx, float regionHeight, Color regionColor, float meshQuadSize)
         {

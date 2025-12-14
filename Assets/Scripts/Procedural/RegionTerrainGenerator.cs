@@ -1,6 +1,9 @@
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 namespace LandOfTheConsumers.Procedural
 {
@@ -20,6 +23,9 @@ namespace LandOfTheConsumers.Procedural
         [Tooltip("Pixels per unit for terrain generation")]
         public int pixelsPerUnit = 2;
 
+        [Tooltip("Sample every Nth pixel (1 = all pixels, 2 = every other pixel, etc.)")]
+        public int pixelSamplingStep = 1;
+
         private const int chunkSize = 32;
         private float[,] heightMap;
         private List<GameObject> chunks = new List<GameObject>();
@@ -30,6 +36,12 @@ namespace LandOfTheConsumers.Procedural
 
         // Target GameObject to generate terrain chunks into (typically LOD0)
         private GameObject targetContainer;
+
+        // Event called when terrain generation is complete
+        public System.Action OnGenerationComplete;
+
+        // Public property to check if currently generating
+        public bool IsGenerating => isGenerating;
 
         public void GenerateTerrain(CellularRegion region, CellularNoiseVisualizer cellularVisualizer, GameObject targetParent)
         {
@@ -117,6 +129,21 @@ namespace LandOfTheConsumers.Procedural
             int chunkMaxY = maxY / chunkSize;
 
             int chunksCreated = 0;
+            int totalChunksToCreate = 0;
+
+            // Count total chunks first for progress tracking
+            for (int chunkX = chunkMinX; chunkX <= chunkMaxX; chunkX++)
+            {
+                for (int chunkY = chunkMinY; chunkY <= chunkMaxY; chunkY++)
+                {
+                    if (ChunkContainsRegionPixels(chunkX, chunkY, regionPixelSet))
+                    {
+                        totalChunksToCreate++;
+                    }
+                }
+            }
+
+            Debug.Log($"[RegionTerrainGenerator] Region {regionIndex} will generate {totalChunksToCreate} chunks");
 
             // Create chunks only where region pixels exist
             for (int chunkX = chunkMinX; chunkX <= chunkMaxX; chunkX++)
@@ -128,13 +155,28 @@ namespace LandOfTheConsumers.Procedural
                     {
                         CreateChunk(chunkX, chunkY, minX, minY, regionPixelSet, cellularVisualizer.pixelsPerUnit, halfWidth, halfHeight);
                         chunksCreated++;
-                        yield return new WaitForSeconds(0.05f);
+
+                        // Yield every few chunks to prevent freezing, but no delay
+                        if (chunksCreated % 5 == 0)
+                        {
+                            #if UNITY_EDITOR
+                            if (!Application.isPlaying)
+                            {
+                                // Force editor update in Edit Mode
+                                EditorApplication.QueuePlayerLoopUpdate();
+                            }
+                            #endif
+                            yield return null;
+                        }
                     }
                 }
             }
 
             isGenerating = false;
             Debug.Log($"[RegionTerrainGenerator] Completed terrain generation for region {regionIndex} with {chunksCreated} chunks");
+
+            // Notify listeners that generation is complete
+            OnGenerationComplete?.Invoke();
         }
 
         private bool ChunkContainsRegionPixels(int chunkX, int chunkY, HashSet<Vector2Int> regionPixelSet)
@@ -212,8 +254,8 @@ namespace LandOfTheConsumers.Procedural
                 {
                     Vector2Int pixel = new Vector2Int(pixelX, pixelY);
 
-                    // Only process pixels that belong to this region
-                    if (regionPixelSet.Contains(pixel))
+                    // Only process pixels that belong to this region and match sampling pattern
+                    if (regionPixelSet.Contains(pixel) && pixelX % pixelSamplingStep == 0 && pixelY % pixelSamplingStep == 0)
                     {
                         // Each pixel generates pixelsPerUnit x pixelsPerUnit vertices
                         for (int subX = 0; subX <= pixelsPerUnit; subX++)
@@ -262,7 +304,7 @@ namespace LandOfTheConsumers.Procedural
                 {
                     Vector2Int pixel = new Vector2Int(pixelX, pixelY);
 
-                    if (regionPixelSet.Contains(pixel))
+                    if (regionPixelSet.Contains(pixel) && pixelX % pixelSamplingStep == 0 && pixelY % pixelSamplingStep == 0)
                     {
                         // Create triangles for each sub-quad within the pixel
                         for (int subX = 0; subX < pixelsPerUnit; subX++)
