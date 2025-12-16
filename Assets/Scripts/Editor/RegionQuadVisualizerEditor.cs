@@ -22,6 +22,31 @@ namespace LandOfTheConsumers.Procedural
             }
             GUI.backgroundColor = Color.white;
 
+            EditorGUILayout.Space(5);
+
+            // Cancel and Clear buttons
+            EditorGUILayout.BeginHorizontal();
+
+            GUI.backgroundColor = new Color(1f, 0.5f, 0f); // Orange
+            if (GUILayout.Button("Cancel Generation", GUILayout.Height(30)))
+            {
+                visualizer.CancelGeneration();
+            }
+
+            GUI.backgroundColor = Color.red;
+            if (GUILayout.Button("Clear & Cancel", GUILayout.Height(30)))
+            {
+                if (EditorUtility.DisplayDialog("Clear All Regions",
+                    "This will clear all generated regions and cancel any ongoing generation. Continue?",
+                    "Yes", "No"))
+                {
+                    visualizer.ClearAndCancel();
+                }
+            }
+            GUI.backgroundColor = Color.white;
+
+            EditorGUILayout.EndHorizontal();
+
             EditorGUILayout.Space(10);
             EditorGUILayout.LabelField("Quick Guide", EditorStyles.boldLabel);
 

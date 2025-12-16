@@ -74,6 +74,7 @@ namespace LandOfTheConsumers.Procedural
         private Queue<RegionGenerationData> regionQueue = new Queue<RegionGenerationData>();
         private Queue<LODGenerationTask> lodQueue = new Queue<LODGenerationTask>();
         private bool isProcessingQueue = false;
+        private bool cancelRequested = false;
 
         [ContextMenu("Generate All Regions With Random Heights")]
         public void GenerateAllRegionsWithRandomHeights()
@@ -201,6 +202,7 @@ namespace LandOfTheConsumers.Procedural
         private IEnumerator ProcessRegionQueueWithLODPriority()
         {
             isProcessingQueue = true;
+            cancelRequested = false;
             int totalRegions = regionQueue.Count;
             List<RegionGenerationData> allRegionData = new List<RegionGenerationData>();
 
@@ -208,7 +210,7 @@ namespace LandOfTheConsumers.Procedural
 
             // Phase 1: Create all region GameObjects and setup their hierarchy (no terrain generation yet)
             int regionCount = 0;
-            while (regionQueue.Count > 0)
+            while (regionQueue.Count > 0 && !cancelRequested)
             {
                 RegionGenerationData data = regionQueue.Dequeue();
                 regionCount++;
@@ -262,6 +264,15 @@ namespace LandOfTheConsumers.Procedural
                 allRegionData.Add(data);
 
                 yield return null; // Yield after creating each region's hierarchy
+            }
+
+            // Check if cancelled during Phase 1
+            if (cancelRequested)
+            {
+                Debug.Log("[RegionQuadVisualizer] Generation cancelled during region hierarchy creation");
+                isProcessingQueue = false;
+                cancelRequested = false;
+                yield break;
             }
 
             Debug.Log($"[RegionQuadVisualizer] Region hierarchies created. Building LOD generation queue...");
@@ -321,7 +332,7 @@ namespace LandOfTheConsumers.Procedural
             int tasksProcessed = 0;
             int totalTasks = lodQueue.Count;
 
-            while (lodQueue.Count > 0)
+            while (lodQueue.Count > 0 && !cancelRequested)
             {
                 LODGenerationTask task = lodQueue.Dequeue();
                 tasksProcessed++;
@@ -353,8 +364,18 @@ namespace LandOfTheConsumers.Procedural
                 Debug.Log($"[RegionQuadVisualizer] LOD{task.lodLevel} for region {task.regionData.regionIndex} completed");
             }
 
+            // Final cleanup
+            if (cancelRequested)
+            {
+                Debug.Log($"[RegionQuadVisualizer] Generation cancelled. {tasksProcessed}/{totalTasks} LOD tasks completed before cancellation.");
+            }
+            else
+            {
+                Debug.Log($"[RegionQuadVisualizer] Completed all LOD generation for {totalRegions} regions");
+            }
+
             isProcessingQueue = false;
-            Debug.Log($"[RegionQuadVisualizer] Completed all LOD generation for {totalRegions} regions");
+            cancelRequested = false;
         }
 
         private void UpdateLODGroupImmediately(RegionGenerationData data)
@@ -494,6 +515,39 @@ namespace LandOfTheConsumers.Procedural
             Debug.Log($"[RegionQuadVisualizer] Region {regionIdx} LOD: {sampledPixelCount} quads (skip rate: {pixelSkip}, original: {region.PixelCount})");
 
             return regionMeshRenderer;
+        }
+
+        public void CancelGeneration()
+        {
+            if (isProcessingQueue)
+            {
+                Debug.Log("[RegionQuadVisualizer] Cancelling generation...");
+                cancelRequested = true;
+            }
+            else
+            {
+                Debug.Log("[RegionQuadVisualizer] No generation in progress to cancel.");
+            }
+        }
+
+        public void ClearAndCancel()
+        {
+            Debug.Log("[RegionQuadVisualizer] Clear and cancel requested");
+
+            // Cancel any ongoing generation
+            if (isProcessingQueue)
+            {
+                cancelRequested = true;
+            }
+
+            // Clear the queues
+            regionQueue.Clear();
+            lodQueue.Clear();
+
+            // Clear all child regions
+            ClearChildRegions();
+
+            Debug.Log("[RegionQuadVisualizer] Cleared all regions and cancelled generation");
         }
 
         private void ClearChildRegions()
