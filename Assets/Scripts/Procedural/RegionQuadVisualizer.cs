@@ -7,7 +7,6 @@ using UnityEditor;
 
 namespace LandOfTheConsumers.Procedural
 {
-    [ExecuteInEditMode]
     public class RegionQuadVisualizer : MonoBehaviour
     {
         [Header("Region Selection")]
@@ -75,6 +74,12 @@ namespace LandOfTheConsumers.Procedural
         private Queue<LODGenerationTask> lodQueue = new Queue<LODGenerationTask>();
         private bool isProcessingQueue = false;
         private bool cancelRequested = false;
+
+        private void Start()
+        {
+            // Automatically generate regions when Play mode starts
+            GenerateAllRegionsWithRandomHeights();
+        }
 
         [ContextMenu("Generate All Regions With Random Heights")]
         public void GenerateAllRegionsWithRandomHeights()

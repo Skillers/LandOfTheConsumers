@@ -6,7 +6,8 @@
       "Bash(git -C \"D:\\Repos\\LandOfTheConsumers\" log --oneline)",
       "Bash(cat:*)",
       "Bash(mkdir:*)",
-      "Bash(dir /s /b *.asset)"
+      "Bash(dir /s /b *.asset)",
+      "Bash(del \"C:\\\\Repos\\\\LandOfTheConsumers\\\\Assets\\\\Scripts\\\\Editor\\\\RegionQuadVisualizerEditor.cs\")"
     ],
     "deny": [],
     "ask": []
