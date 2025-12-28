@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using System.Collections.Generic;
+using System.Linq;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -70,12 +71,16 @@ namespace LandOfTheConsumers.Procedural
         private Dictionary<int, int> pointToRegionID = new Dictionary<int, int>(); // Maps point index to region ID
         private List<CellularRegion> regions = new List<CellularRegion>(); // All regions
         private List<CellCornerData> cellCorners = new List<CellCornerData>(); // All cell corners with connected regions
+        private List<(int, int)> cornerEdges = new List<(int, int)>(); // Pairs of corner indices that form edges
 
         // Public accessor for regions
         public List<CellularRegion> Regions => regions;
 
         // Public accessor for cell corners
         public List<CellCornerData> CellCorners => cellCorners;
+
+        // Public accessor for corner edges (pairs of corner indices)
+        public List<(int, int)> CornerEdges => cornerEdges;
 
         private void OnEnable()
         {
@@ -173,6 +178,7 @@ namespace LandOfTheConsumers.Procedural
             pointToRegionID.Clear();
             regions.Clear();
             cellCorners.Clear();
+            cornerEdges.Clear();
 
             // Calculate world size in units
             int worldWidth = worldSizeInBiomes.x * biomeSize;
@@ -186,6 +192,9 @@ namespace LandOfTheConsumers.Procedural
 
             // Calculate cell corners after regions are built
             CalculateAndStoreCellCorners();
+
+            // Calculate edges between corners
+            CalculateCornerEdges();
 
             // Calculate texture resolution based on world size and pixels per unit
             int textureWidth = worldWidth * pixelsPerUnit;
@@ -267,6 +276,7 @@ namespace LandOfTheConsumers.Procedural
             // Highlight the actual random points in yellow and draw red connection lines
             DrawBiomePoints(pixels, textureWidth, textureHeight, worldWidth, worldHeight);
             DrawConnections(pixels, textureWidth, textureHeight);
+            DrawCornerEdges(pixels, textureWidth, textureHeight);
 
             noiseTexture.SetPixels(pixels);
             noiseTexture.Apply();
@@ -893,6 +903,92 @@ namespace LandOfTheConsumers.Procedural
             return new Vector2(ux, uy);
         }
 
+        private void CalculateCornerEdges()
+        {
+            cornerEdges.Clear();
+
+            // For each pair of corners, check if they share exactly 2 regions
+            // AND are adjacent neighbors (no other corner between them on the same edge)
+            for (int i = 0; i < cellCorners.Count; i++)
+            {
+                for (int j = i + 1; j < cellCorners.Count; j++)
+                {
+                    CellCornerData corner1 = cellCorners[i];
+                    CellCornerData corner2 = cellCorners[j];
+
+                    // Find shared regions between these two corners
+                    List<int> sharedRegionsList = new List<int>();
+                    foreach (int regionID in corner1.connectedRegions)
+                    {
+                        if (corner2.connectedRegions.Contains(regionID))
+                        {
+                            sharedRegionsList.Add(regionID);
+                        }
+                    }
+
+                    // Two corners form an edge if they share exactly 2 regions
+                    // (the edge represents the boundary between those 2 regions)
+                    if (sharedRegionsList.Count == 2)
+                    {
+                        float distance = Vector2.Distance(corner1.position, corner2.position);
+
+                        // Check if there's another corner between these two that shares the same 2 regions
+                        bool hasIntermediateCorner = false;
+                        for (int k = 0; k < cellCorners.Count; k++)
+                        {
+                            if (k == i || k == j) continue;
+
+                            CellCornerData otherCorner = cellCorners[k];
+
+                            // Check if this corner shares the same 2 regions
+                            bool sharesSameRegions = sharedRegionsList.All(regionID => otherCorner.connectedRegions.Contains(regionID));
+
+                            if (sharesSameRegions)
+                            {
+                                // Check if this corner is between corner1 and corner2
+                                float dist1 = Vector2.Distance(corner1.position, otherCorner.position);
+                                float dist2 = Vector2.Distance(corner2.position, otherCorner.position);
+
+                                // If both distances are less than the total distance, it's in between
+                                if (dist1 < distance && dist2 < distance)
+                                {
+                                    hasIntermediateCorner = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Only add edge if there's no intermediate corner
+                        if (!hasIntermediateCorner)
+                        {
+                            cornerEdges.Add((i, j));
+                        }
+                    }
+                }
+            }
+
+            Debug.Log($"[CellularNoiseVisualizer] Generated {cornerEdges.Count} corner edges");
+        }
+
+        private void DrawCornerEdges(Color[] pixels, int textureWidth, int textureHeight)
+        {
+            // Draw blue lines between connected corners (region edges)
+            foreach (var edge in cornerEdges)
+            {
+                Vector2 corner1 = cellCorners[edge.Item1].position;
+                Vector2 corner2 = cellCorners[edge.Item2].position;
+
+                // Convert to pixel coordinates
+                int x0 = Mathf.RoundToInt(corner1.x * pixelsPerUnit);
+                int y0 = Mathf.RoundToInt(corner1.y * pixelsPerUnit);
+                int x1 = Mathf.RoundToInt(corner2.x * pixelsPerUnit);
+                int y1 = Mathf.RoundToInt(corner2.y * pixelsPerUnit);
+
+                // Draw line in blue (to distinguish from red connection lines)
+                DrawLine(pixels, textureWidth, textureHeight, x0, y0, x1, y1, Color.blue);
+            }
+        }
+
         private void OnDrawGizmosSelected()
         {
             // Calculate world size
@@ -954,6 +1050,22 @@ namespace LandOfTheConsumers.Procedural
                 {
                     Vector3 worldPos = transform.position + new Vector3(corner.position.x - halfWidth, 2f, corner.position.y - halfHeight);
                     Gizmos.DrawSphere(worldPos, 5f); // Extra large sphere - 5 units radius
+                }
+            }
+
+            // Draw corner edges (region boundaries) from stored data
+            if (cornerEdges != null && cornerEdges.Count > 0 && cellCorners != null)
+            {
+                Gizmos.color = Color.blue; // Blue lines for region edges
+                foreach (var edge in cornerEdges)
+                {
+                    Vector2 corner1 = cellCorners[edge.Item1].position;
+                    Vector2 corner2 = cellCorners[edge.Item2].position;
+
+                    Vector3 worldPos1 = transform.position + new Vector3(corner1.x - halfWidth, 2f, corner1.y - halfHeight);
+                    Vector3 worldPos2 = transform.position + new Vector3(corner2.x - halfWidth, 2f, corner2.y - halfHeight);
+
+                    Gizmos.DrawLine(worldPos1, worldPos2);
                 }
             }
 
