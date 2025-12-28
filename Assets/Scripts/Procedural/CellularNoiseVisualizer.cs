@@ -7,6 +7,18 @@ using UnityEditor;
 
 namespace LandOfTheConsumers.Procedural
 {
+    [System.Serializable]
+    public class CellCornerData
+    {
+        public Vector2 position;
+        public List<int> connectedRegions = new List<int>();
+
+        public CellCornerData(Vector2 pos)
+        {
+            position = pos;
+        }
+    }
+
     [ExecuteInEditMode]
     public class CellularNoiseVisualizer : MonoBehaviour
     {
@@ -57,14 +69,69 @@ namespace LandOfTheConsumers.Procedural
         private List<(int, int)> connections = new List<(int, int)>(); // Pairs of point indices that are connected
         private Dictionary<int, int> pointToRegionID = new Dictionary<int, int>(); // Maps point index to region ID
         private List<CellularRegion> regions = new List<CellularRegion>(); // All regions
+        private List<CellCornerData> cellCorners = new List<CellCornerData>(); // All cell corners with connected regions
 
         // Public accessor for regions
         public List<CellularRegion> Regions => regions;
+
+        // Public accessor for cell corners
+        public List<CellCornerData> CellCorners => cellCorners;
 
         private void OnEnable()
         {
             SetupComponents();
             GenerateNoiseTexture();
+        }
+
+        private void Start()
+        {
+            // Print corner data when in play mode
+            if (Application.isPlaying)
+            {
+                PrintCellCornerData();
+            }
+        }
+
+        private void PrintCellCornerData()
+        {
+            if (cellCorners == null || cellCorners.Count == 0)
+            {
+                Debug.LogWarning("[CellularNoiseVisualizer] No cell corner data available. Make sure to generate noise first.");
+                return;
+            }
+
+            // Calculate half dimensions for centered coordinates
+            float worldWidth = worldSizeInBiomes.x * biomeSize;
+            float worldHeight = worldSizeInBiomes.y * biomeSize;
+            float halfWidth = worldWidth * 0.5f;
+            float halfHeight = worldHeight * 0.5f;
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            sb.AppendLine($"========== CELL CORNER DATA ({cellCorners.Count} corners) ==========");
+            sb.AppendLine();
+
+            for (int i = 0; i < cellCorners.Count; i++)
+            {
+                CellCornerData corner = cellCorners[i];
+                float centeredX = corner.position.x - halfWidth;
+                float centeredY = corner.position.y - halfHeight;
+
+                sb.AppendLine($"Corner {i}:");
+                sb.AppendLine($"  Position (Raw): ({corner.position.x:F2}, {corner.position.y:F2})");
+                sb.AppendLine($"  Position (Centered): ({centeredX:F2}, {centeredY:F2})");
+                sb.Append($"  Connected Regions: [");
+                for (int j = 0; j < corner.connectedRegions.Count; j++)
+                {
+                    sb.Append(corner.connectedRegions[j]);
+                    if (j < corner.connectedRegions.Count - 1)
+                        sb.Append(", ");
+                }
+                sb.AppendLine("]");
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("==================================================");
+            Debug.Log(sb.ToString());
         }
 
         private void SetupComponents()
@@ -105,6 +172,7 @@ namespace LandOfTheConsumers.Procedural
             connections.Clear();
             pointToRegionID.Clear();
             regions.Clear();
+            cellCorners.Clear();
 
             // Calculate world size in units
             int worldWidth = worldSizeInBiomes.x * biomeSize;
@@ -115,6 +183,9 @@ namespace LandOfTheConsumers.Procedural
 
             // Build region groups from connections
             BuildRegionGroups();
+
+            // Calculate cell corners after regions are built
+            CalculateAndStoreCellCorners();
 
             // Calculate texture resolution based on world size and pixels per unit
             int textureWidth = worldWidth * pixelsPerUnit;
@@ -568,6 +639,260 @@ namespace LandOfTheConsumers.Procedural
             }
         }
 
+        private void CalculateAndStoreCellCorners()
+        {
+            cellCorners.Clear();
+
+            // Calculate world bounds
+            float worldWidth = worldSizeInBiomes.x * biomeSize;
+            float worldHeight = worldSizeInBiomes.y * biomeSize;
+
+            // For each triplet of points, calculate circumcenter
+            for (int i = 0; i < biomePoints.Count; i++)
+            {
+                for (int j = i + 1; j < biomePoints.Count; j++)
+                {
+                    for (int k = j + 1; k < biomePoints.Count; k++)
+                    {
+                        Vector2 p1 = biomePoints[i];
+                        Vector2 p2 = biomePoints[j];
+                        Vector2 p3 = biomePoints[k];
+
+                        // Calculate circumcenter of triangle formed by p1, p2, p3
+                        Vector2? circumcenter = CalculateCircumcenter(p1, p2, p3);
+
+                        if (circumcenter.HasValue)
+                        {
+                            Vector2 center = circumcenter.Value;
+
+                            // Check if this point is within world bounds
+                            if (center.x < 0 || center.x > worldWidth || center.y < 0 || center.y > worldHeight)
+                                continue;
+
+                            // Check if this is a valid Voronoi vertex
+                            // (no other points should be closer to this center than p1, p2, p3)
+                            float radius = Vector2.Distance(center, p1);
+                            bool isValid = true;
+
+                            for (int m = 0; m < biomePoints.Count; m++)
+                            {
+                                if (m == i || m == j || m == k) continue;
+
+                                float dist = Vector2.Distance(center, biomePoints[m]);
+                                if (dist < radius - 0.1f) // Small tolerance for floating point errors
+                                {
+                                    isValid = false;
+                                    break;
+                                }
+                            }
+
+                            if (isValid)
+                            {
+                                // Create corner data with connected regions
+                                CellCornerData cornerData = new CellCornerData(center);
+
+                                // Get region IDs for the three points that form this corner
+                                int regionI = pointToRegionID[i];
+                                int regionJ = pointToRegionID[j];
+                                int regionK = pointToRegionID[k];
+
+                                // Add unique region IDs
+                                if (!cornerData.connectedRegions.Contains(regionI))
+                                    cornerData.connectedRegions.Add(regionI);
+                                if (!cornerData.connectedRegions.Contains(regionJ))
+                                    cornerData.connectedRegions.Add(regionJ);
+                                if (!cornerData.connectedRegions.Contains(regionK))
+                                    cornerData.connectedRegions.Add(regionK);
+
+                                cellCorners.Add(cornerData);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Calculate edge corners (where 2 cells meet at world boundaries)
+            CalculateEdgeCorners(worldWidth, worldHeight);
+
+            Debug.Log($"[CellularNoiseVisualizer] Generated {cellCorners.Count} cell corners");
+        }
+
+        private void CalculateEdgeCorners(float worldWidth, float worldHeight)
+        {
+            // For each pair of points, find where their Voronoi edge intersects with world boundaries
+            for (int i = 0; i < biomePoints.Count; i++)
+            {
+                for (int j = i + 1; j < biomePoints.Count; j++)
+                {
+                    Vector2 p1 = biomePoints[i];
+                    Vector2 p2 = biomePoints[j];
+
+                    // Calculate midpoint
+                    Vector2 midpoint = (p1 + p2) * 0.5f;
+
+                    // Calculate perpendicular direction (Voronoi edge direction)
+                    Vector2 edge = p2 - p1;
+                    Vector2 perpendicular = new Vector2(-edge.y, edge.x).normalized;
+
+                    // Check if these two points are neighbors (their cells share an edge)
+                    // They're likely neighbors if they're relatively close
+                    float distance = Vector2.Distance(p1, p2);
+                    if (distance > biomeSize * 3f) continue; // Skip distant points
+
+                    // Cast ray in both perpendicular directions to find boundary intersections
+                    Vector2[] directions = { perpendicular, -perpendicular };
+
+                    foreach (Vector2 direction in directions)
+                    {
+                        Vector2? intersection = RaycastToBoundary(midpoint, direction, worldWidth, worldHeight);
+
+                        if (intersection.HasValue)
+                        {
+                            Vector2 intersectionPoint = intersection.Value;
+
+                            // Check if this edge point is valid (not closer to any other point)
+                            bool isValid = true;
+                            float dist1 = Vector2.Distance(intersectionPoint, p1);
+
+                            for (int k = 0; k < biomePoints.Count; k++)
+                            {
+                                if (k == i || k == j) continue;
+
+                                float distK = Vector2.Distance(intersectionPoint, biomePoints[k]);
+                                if (distK < dist1 - 1f) // Tolerance for edge cases
+                                {
+                                    isValid = false;
+                                    break;
+                                }
+                            }
+
+                            if (isValid)
+                            {
+                                // Check if this corner already exists (avoid duplicates)
+                                bool alreadyExists = false;
+                                foreach (var existing in cellCorners)
+                                {
+                                    if (Vector2.Distance(existing.position, intersectionPoint) < 1f)
+                                    {
+                                        alreadyExists = true;
+                                        break;
+                                    }
+                                }
+
+                                if (!alreadyExists)
+                                {
+                                    // Create edge corner with 2 connected regions
+                                    CellCornerData cornerData = new CellCornerData(intersectionPoint);
+                                    int regionI = pointToRegionID[i];
+                                    int regionJ = pointToRegionID[j];
+
+                                    if (!cornerData.connectedRegions.Contains(regionI))
+                                        cornerData.connectedRegions.Add(regionI);
+                                    if (!cornerData.connectedRegions.Contains(regionJ))
+                                        cornerData.connectedRegions.Add(regionJ);
+
+                                    cellCorners.Add(cornerData);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private Vector2? RaycastToBoundary(Vector2 origin, Vector2 direction, float worldWidth, float worldHeight)
+        {
+            // Find intersection with world boundaries
+            Vector2? closestIntersection = null;
+            float closestDistance = float.MaxValue;
+
+            // Check intersection with each boundary
+            // Left boundary (x = 0)
+            if (direction.x < 0)
+            {
+                float t = (0 - origin.x) / direction.x;
+                Vector2 point = origin + direction * t;
+                if (point.y >= 0 && point.y <= worldHeight && t > 0)
+                {
+                    float dist = Vector2.Distance(origin, point);
+                    if (dist < closestDistance)
+                    {
+                        closestDistance = dist;
+                        closestIntersection = point;
+                    }
+                }
+            }
+
+            // Right boundary (x = worldWidth)
+            if (direction.x > 0)
+            {
+                float t = (worldWidth - origin.x) / direction.x;
+                Vector2 point = origin + direction * t;
+                if (point.y >= 0 && point.y <= worldHeight && t > 0)
+                {
+                    float dist = Vector2.Distance(origin, point);
+                    if (dist < closestDistance)
+                    {
+                        closestDistance = dist;
+                        closestIntersection = point;
+                    }
+                }
+            }
+
+            // Bottom boundary (y = 0)
+            if (direction.y < 0)
+            {
+                float t = (0 - origin.y) / direction.y;
+                Vector2 point = origin + direction * t;
+                if (point.x >= 0 && point.x <= worldWidth && t > 0)
+                {
+                    float dist = Vector2.Distance(origin, point);
+                    if (dist < closestDistance)
+                    {
+                        closestDistance = dist;
+                        closestIntersection = point;
+                    }
+                }
+            }
+
+            // Top boundary (y = worldHeight)
+            if (direction.y > 0)
+            {
+                float t = (worldHeight - origin.y) / direction.y;
+                Vector2 point = origin + direction * t;
+                if (point.x >= 0 && point.x <= worldWidth && t > 0)
+                {
+                    float dist = Vector2.Distance(origin, point);
+                    if (dist < closestDistance)
+                    {
+                        closestDistance = dist;
+                        closestIntersection = point;
+                    }
+                }
+            }
+
+            return closestIntersection;
+        }
+
+        private Vector2? CalculateCircumcenter(Vector2 a, Vector2 b, Vector2 c)
+        {
+            // Calculate circumcenter using the formula for the circumcenter of a triangle
+            float d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+
+            // If points are collinear, no circumcenter exists
+            if (Mathf.Abs(d) < 0.001f)
+                return null;
+
+            float aSq = a.x * a.x + a.y * a.y;
+            float bSq = b.x * b.x + b.y * b.y;
+            float cSq = c.x * c.x + c.y * c.y;
+
+            float ux = (aSq * (b.y - c.y) + bSq * (c.y - a.y) + cSq * (a.y - b.y)) / d;
+            float uy = (aSq * (c.x - b.x) + bSq * (a.x - c.x) + cSq * (b.x - a.x)) / d;
+
+            return new Vector2(ux, uy);
+        }
+
         private void OnDrawGizmosSelected()
         {
             // Calculate world size
@@ -619,6 +944,17 @@ namespace LandOfTheConsumers.Procedural
             {
                 Vector3 worldPos = transform.position + new Vector3(point.x - halfWidth, 0.5f, point.y - halfHeight);
                 Gizmos.DrawSphere(worldPos, 0.5f);
+            }
+
+            // Draw cell corners (Voronoi vertices) from stored data
+            if (cellCorners != null && cellCorners.Count > 0)
+            {
+                Gizmos.color = new Color(1f, 0f, 1f, 1f); // Bright magenta/purple
+                foreach (var corner in cellCorners)
+                {
+                    Vector3 worldPos = transform.position + new Vector3(corner.position.x - halfWidth, 2f, corner.position.y - halfHeight);
+                    Gizmos.DrawSphere(worldPos, 5f); // Extra large sphere - 5 units radius
+                }
             }
 
 #if UNITY_EDITOR
