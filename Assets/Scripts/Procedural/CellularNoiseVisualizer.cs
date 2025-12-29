@@ -196,6 +196,9 @@ namespace LandOfTheConsumers.Procedural
             // Calculate edges between corners
             CalculateCornerEdges();
 
+            // Clean up corners that aren't connected to any edges
+            CleanupUnconnectedCorners();
+
             // Calculate texture resolution based on world size and pixels per unit
             int textureWidth = worldWidth * pixelsPerUnit;
             int textureHeight = worldHeight * pixelsPerUnit;
@@ -968,6 +971,54 @@ namespace LandOfTheConsumers.Procedural
             }
 
             Debug.Log($"[CellularNoiseVisualizer] Generated {cornerEdges.Count} corner edges");
+        }
+
+        private void CleanupUnconnectedCorners()
+        {
+            if (cellCorners.Count == 0 || cornerEdges.Count == 0)
+            {
+                Debug.Log($"[CellularNoiseVisualizer] No cleanup needed - {cellCorners.Count} corners, {cornerEdges.Count} edges");
+                return;
+            }
+
+            int originalCount = cellCorners.Count;
+
+            // Track which corners are connected to at least one edge
+            HashSet<int> connectedCornerIndices = new HashSet<int>();
+            foreach (var edge in cornerEdges)
+            {
+                connectedCornerIndices.Add(edge.Item1);
+                connectedCornerIndices.Add(edge.Item2);
+            }
+
+            // Create new list with only connected corners
+            List<CellCornerData> connectedCorners = new List<CellCornerData>();
+            Dictionary<int, int> oldToNewIndexMapping = new Dictionary<int, int>();
+
+            for (int i = 0; i < cellCorners.Count; i++)
+            {
+                if (connectedCornerIndices.Contains(i))
+                {
+                    oldToNewIndexMapping[i] = connectedCorners.Count;
+                    connectedCorners.Add(cellCorners[i]);
+                }
+            }
+
+            // Update corner edges with new indices
+            List<(int, int)> updatedEdges = new List<(int, int)>();
+            foreach (var edge in cornerEdges)
+            {
+                int newIndex1 = oldToNewIndexMapping[edge.Item1];
+                int newIndex2 = oldToNewIndexMapping[edge.Item2];
+                updatedEdges.Add((newIndex1, newIndex2));
+            }
+
+            // Replace old data with cleaned up data
+            cellCorners = connectedCorners;
+            cornerEdges = updatedEdges;
+
+            int removedCount = originalCount - cellCorners.Count;
+            Debug.Log($"[CellularNoiseVisualizer] Cleaned up {removedCount} unconnected corners (kept {cellCorners.Count} connected corners)");
         }
 
         private void DrawCornerEdges(Color[] pixels, int textureWidth, int textureHeight)
