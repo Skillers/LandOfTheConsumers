@@ -75,6 +75,9 @@ namespace LandOfTheConsumers.Procedural
         private bool isProcessingQueue = false;
         private bool cancelRequested = false;
 
+        // Event fired when all LOD0 generation is complete
+        public System.Action OnLOD0GenerationComplete;
+
         private void Start()
         {
             // Automatically generate regions when Play mode starts
@@ -287,6 +290,7 @@ namespace LandOfTheConsumers.Procedural
             lodQueue.Clear();
 
             // Add all LOD0 tasks
+            int lod0TaskCount = 0;
             foreach (var data in allRegionData)
             {
                 if (data.terrainGeneratorLOD0 != null)
@@ -298,6 +302,7 @@ namespace LandOfTheConsumers.Procedural
                         generator = data.terrainGeneratorLOD0,
                         targetObject = data.lod0Object
                     });
+                    lod0TaskCount++;
                 }
             }
 
@@ -367,6 +372,13 @@ namespace LandOfTheConsumers.Procedural
                 UpdateLODGroupImmediately(task.regionData);
 
                 Debug.Log($"[RegionQuadVisualizer] LOD{task.lodLevel} for region {task.regionData.regionIndex} completed");
+
+                // Check if all LOD0 tasks are complete
+                if (tasksProcessed == lod0TaskCount && lod0TaskCount > 0)
+                {
+                    Debug.Log($"[RegionQuadVisualizer] All LOD0 generation complete! Firing OnLOD0GenerationComplete event.");
+                    OnLOD0GenerationComplete?.Invoke();
+                }
             }
 
             // Final cleanup
