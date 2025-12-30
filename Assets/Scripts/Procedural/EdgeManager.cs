@@ -170,10 +170,16 @@ namespace LandOfTheConsumers.Procedural
             // 1. Rasterize 1-pixel-wide line using Bresenham's algorithm
             List<Vector2Int> centerLine = BresenhamLine(x0, y0, x1, y1);
 
-            // 2. Expand to 3-pixel width
+            // 2. Store center line pixels (for height calculation)
+            foreach (var pixel in centerLine)
+            {
+                edgeData.AddCenterPixel(pixel);
+            }
+
+            // 3. Expand to 3-pixel width
             HashSet<Vector2Int> thickLine = ExpandTo3PixelWidth(centerLine);
 
-            // 3. Add all pixels to edge data
+            // 4. Add all pixels to edge data (for mesh generation)
             foreach (var pixel in thickLine)
             {
                 edgeData.AddPixel(pixel);

@@ -24,7 +24,7 @@ namespace LandOfTheConsumers.Procedural
 
         private List<GameObject> chunks = new List<GameObject>();
         private bool isGenerating = false;
-        private float[,] heightMap;
+        private Dictionary<Vector2Int, float> centerPixelHeights; // Height for each center pixel
 
         // Temporary PerlinSettings for height calculation
         private PerlinSettings tempSettingsA;
@@ -147,45 +147,38 @@ namespace LandOfTheConsumers.Procedural
             int regionB_terrainWidth = (regionB_maxX - regionB_minX + 1) * pixelsPerUnit;
             int regionB_terrainHeight = (regionB_maxY - regionB_minY + 1) * pixelsPerUnit;
 
-            // Generate height map for edge bounds by averaging both regions
-            int terrainWidth = (maxX - minX + 1) * pixelsPerUnit;
-            int terrainHeight = (maxY - minY + 1) * pixelsPerUnit;
-            heightMap = new float[terrainWidth, terrainHeight];
+            // Calculate heights for center pixels only (the ribbon's centerline)
+            // These heights will be used for the entire 3-pixel width at each point
+            centerPixelHeights = new Dictionary<Vector2Int, float>();
 
-            // For each terrain coordinate in the edge bounds
-            for (int x = 0; x < terrainWidth; x++)
+            Debug.Log($"[EdgePairGenerator] Calculating heights for {edgeData.centerPixels.Count} center pixels");
+
+            foreach (var centerPixel in edgeData.centerPixels)
             {
-                for (int y = 0; y < terrainHeight; y++)
+                // Calculate height from region A's perspective
+                float heightA = 0f;
+                // Use the center of the pixel for height sampling
+                int terrainA_X = (centerPixel.x - regionA_minX) * pixelsPerUnit + pixelsPerUnit / 2;
+                int terrainA_Y = (centerPixel.y - regionA_minY) * pixelsPerUnit + pixelsPerUnit / 2;
+                if (terrainA_X >= 0 && terrainA_X < regionA_terrainWidth &&
+                    terrainA_Y >= 0 && terrainA_Y < regionA_terrainHeight)
                 {
-                    // Convert terrain coordinate back to global pixel coordinate
-                    int globalPixelX = minX + (x / pixelsPerUnit);
-                    int globalPixelY = minY + (y / pixelsPerUnit);
-                    int subX = x % pixelsPerUnit;
-                    int subY = y % pixelsPerUnit;
-
-                    // Calculate height from region A's perspective
-                    float heightA = 0f;
-                    int terrainA_X = (globalPixelX - regionA_minX) * pixelsPerUnit + subX;
-                    int terrainA_Y = (globalPixelY - regionA_minY) * pixelsPerUnit + subY;
-                    if (terrainA_X >= 0 && terrainA_X < regionA_terrainWidth &&
-                        terrainA_Y >= 0 && terrainA_Y < regionA_terrainHeight)
-                    {
-                        heightA = CalculateHeightAtTerrain(terrainA_X, terrainA_Y, regionA_terrainWidth, regionA_terrainHeight, tempSettingsA);
-                    }
-
-                    // Calculate height from region B's perspective
-                    float heightB = 0f;
-                    int terrainB_X = (globalPixelX - regionB_minX) * pixelsPerUnit + subX;
-                    int terrainB_Y = (globalPixelY - regionB_minY) * pixelsPerUnit + subY;
-                    if (terrainB_X >= 0 && terrainB_X < regionB_terrainWidth &&
-                        terrainB_Y >= 0 && terrainB_Y < regionB_terrainHeight)
-                    {
-                        heightB = CalculateHeightAtTerrain(terrainB_X, terrainB_Y, regionB_terrainWidth, regionB_terrainHeight, tempSettingsB);
-                    }
-
-                    // Average the two heights
-                    heightMap[x, y] = (heightA + heightB) * 0.5f;
+                    heightA = CalculateHeightAtTerrain(terrainA_X, terrainA_Y, regionA_terrainWidth, regionA_terrainHeight, tempSettingsA);
                 }
+
+                // Calculate height from region B's perspective
+                float heightB = 0f;
+                int terrainB_X = (centerPixel.x - regionB_minX) * pixelsPerUnit + pixelsPerUnit / 2;
+                int terrainB_Y = (centerPixel.y - regionB_minY) * pixelsPerUnit + pixelsPerUnit / 2;
+                if (terrainB_X >= 0 && terrainB_X < regionB_terrainWidth &&
+                    terrainB_Y >= 0 && terrainB_Y < regionB_terrainHeight)
+                {
+                    heightB = CalculateHeightAtTerrain(terrainB_X, terrainB_Y, regionB_terrainWidth, regionB_terrainHeight, tempSettingsB);
+                }
+
+                // Average the two heights and store for this center pixel
+                float averagedHeight = (heightA + heightB) * 0.5f;
+                centerPixelHeights[centerPixel] = averagedHeight;
             }
 
             // Calculate chunks
@@ -272,6 +265,35 @@ namespace LandOfTheConsumers.Procedural
             return sample * settings.heightMultiplier;
         }
 
+        /// <summary>
+        /// Find the nearest center pixel to a given edge pixel.
+        /// The edge is like a ribbon - all pixels across the width should use the same center pixel's height.
+        /// </summary>
+        private Vector2Int FindNearestCenterPixel(Vector2Int edgePixel)
+        {
+            // If this pixel IS a center pixel, return it
+            if (edgeData.centerPixelSet.Contains(edgePixel))
+            {
+                return edgePixel;
+            }
+
+            // Otherwise, find the closest center pixel (Manhattan distance)
+            Vector2Int nearest = edgeData.centerPixels[0];
+            int minDistance = int.MaxValue;
+
+            foreach (var centerPixel in edgeData.centerPixels)
+            {
+                int distance = Mathf.Abs(centerPixel.x - edgePixel.x) + Mathf.Abs(centerPixel.y - edgePixel.y);
+                if (distance < minDistance)
+                {
+                    minDistance = distance;
+                    nearest = centerPixel;
+                }
+            }
+
+            return nearest;
+        }
+
         private void CreateChunk(int chunkX, int chunkY, int minPixelX, int minPixelY,
                                 int cellularPixelsPerUnit, float halfWidth, float halfHeight)
         {
@@ -333,6 +355,15 @@ namespace LandOfTheConsumers.Procedural
                     if (edgeData.edgePixelSet.Contains(pixel) &&
                         pixelX % pixelSamplingStep == 0 && pixelY % pixelSamplingStep == 0)
                     {
+                        // Find the nearest center pixel to get the ribbon's height at this point
+                        Vector2Int nearestCenter = FindNearestCenterPixel(pixel);
+                        float ribbonHeight = 0f;
+
+                        if (centerPixelHeights.ContainsKey(nearestCenter))
+                        {
+                            ribbonHeight = centerPixelHeights[nearestCenter];
+                        }
+
                         // Each pixel generates (pixelsPerUnit + 1)² vertices (3x3 for LOD0)
                         for (int subX = 0; subX <= pixelsPerUnit; subX++)
                         {
@@ -345,13 +376,8 @@ namespace LandOfTheConsumers.Procedural
                                 if (vertexIndexMap.ContainsKey(terrainCoord))
                                     continue;
 
-                                // Get height from heightmap
-                                float height = 0f;
-                                if (terrainX >= 0 && terrainX < heightMap.GetLength(0) &&
-                                    terrainY >= 0 && terrainY < heightMap.GetLength(1))
-                                {
-                                    height = heightMap[terrainX, terrainY];
-                                }
+                                // Use the ribbon height (same for entire width)
+                                float height = ribbonHeight;
 
                                 // Add small Y offset to prevent z-fighting with regions
                                 height += 0.01f;
