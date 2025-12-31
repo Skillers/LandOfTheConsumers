@@ -110,8 +110,9 @@ namespace LandOfTheConsumers.Procedural
             Debug.Log($"[RegionTerrainGenerator] Region {regionIndex} - Pixel bounds: ({minX}, {minY}) to ({maxX}, {maxY})");
 
             // Generate height map for the entire region bounds
-            int terrainWidth = (maxX - minX + 1) * pixelsPerUnit;
-            int terrainHeight = (maxY - minY + 1) * pixelsPerUnit;
+            // Add 1 to account for the extra vertex at the end (vertices go from 0 to pixelsPerUnit inclusive)
+            int terrainWidth = (maxX - minX + 1) * pixelsPerUnit + 1;
+            int terrainHeight = (maxY - minY + 1) * pixelsPerUnit + 1;
             heightMap = new float[terrainWidth, terrainHeight];
 
             for (int x = 0; x < terrainWidth; x++)
