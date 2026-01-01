@@ -270,13 +270,237 @@ namespace LandOfTheConsumers.Procedural
                 }
             }
 
-            // Set all positions to LineRenderer
-            lineRenderer.positionCount = linePoints.Count;
-            lineRenderer.SetPositions(linePoints.ToArray());
+            // Apply extra smoothing pass to the line points
+            Vector3[] smoothedLinePoints = ApplyLineSmoothing(linePoints.ToArray());
+
+            // Set smoothed positions to LineRenderer
+            lineRenderer.positionCount = smoothedLinePoints.Length;
+            lineRenderer.SetPositions(smoothedLinePoints);
+
+            // Create 2 child objects with exact copies of the smoothed line data
+            Vector3[] leftLinePoints;
+            Vector3[] rightLinePoints;
+            CreateChildEdgeLines(smoothedLinePoints, out leftLinePoints, out rightLinePoints);
+
+            // Create mesh from the 3 lines
+            CreateEdgeMesh(smoothedLinePoints, leftLinePoints, rightLinePoints);
 
             isGenerating = false;
-            Debug.Log($"[EdgePairGenerator] Completed {edgeData.GetPairName()} with {linePoints.Count} line points (from {edgeData.centerPixels.Count} center pixels)");
+            Debug.Log($"[EdgePairGenerator] Completed {edgeData.GetPairName()} with {smoothedLinePoints.Length} line points (from {edgeData.centerPixels.Count} center pixels)");
             OnGenerationComplete?.Invoke();
+        }
+
+        /// <summary>
+        /// Applies an additional smoothing pass to the line points
+        /// </summary>
+        private Vector3[] ApplyLineSmoothing(Vector3[] linePoints)
+        {
+            if (linePoints.Length < 3)
+                return linePoints; // No smoothing needed for very short lines
+
+            Vector3[] smoothedPoints = new Vector3[linePoints.Length];
+
+            for (int i = 0; i < linePoints.Length; i++)
+            {
+                if (i == 0)
+                {
+                    // First point: blend with next point
+                    smoothedPoints[i] = linePoints[i] * 0.4f + linePoints[i + 1] * 0.6f;
+                }
+                else if (i == linePoints.Length - 1)
+                {
+                    // Last point: blend with previous point
+                    smoothedPoints[i] = linePoints[i] * 0.4f + linePoints[i - 1] * 0.6f;
+                }
+                else
+                {
+                    // Middle points: blend with neighbors
+                    smoothedPoints[i] = linePoints[i] * 0.2f + linePoints[i - 1] * 0.4f + linePoints[i + 1] * 0.4f;
+                }
+            }
+
+            return smoothedPoints;
+        }
+
+        /// <summary>
+        /// Creates 2 child objects with exact copies of the parent line, offset perpendicular
+        /// Left (red) at -0.5 units, Right (blue) at +0.5 units
+        /// </summary>
+        private void CreateChildEdgeLines(Vector3[] linePoints, out Vector3[] leftLinePoints, out Vector3[] rightLinePoints)
+        {
+            // Calculate perpendicular offsets
+            leftLinePoints = CalculatePerpendicularOffset(linePoints, -0.5f);
+            rightLinePoints = CalculatePerpendicularOffset(linePoints, 0.5f);
+
+            // Create left child (red) - offset to left
+            GameObject leftChild = new GameObject("EdgeLine_Left");
+            leftChild.transform.SetParent(transform);
+            leftChild.transform.localPosition = Vector3.zero;
+            leftChild.transform.localRotation = Quaternion.identity;
+            leftChild.transform.localScale = Vector3.one;
+
+            LineRenderer leftLineRenderer = leftChild.AddComponent<LineRenderer>();
+            leftLineRenderer.material = new Material(Shader.Find("Sprites/Default"));
+            leftLineRenderer.startColor = Color.red;
+            leftLineRenderer.endColor = Color.red;
+            leftLineRenderer.startWidth = 0.1f;
+            leftLineRenderer.endWidth = 0.1f;
+            leftLineRenderer.positionCount = leftLinePoints.Length;
+            leftLineRenderer.SetPositions(leftLinePoints);
+
+            // Create right child (blue) - offset to right
+            GameObject rightChild = new GameObject("EdgeLine_Right");
+            rightChild.transform.SetParent(transform);
+            rightChild.transform.localPosition = Vector3.zero;
+            rightChild.transform.localRotation = Quaternion.identity;
+            rightChild.transform.localScale = Vector3.one;
+
+            LineRenderer rightLineRenderer = rightChild.AddComponent<LineRenderer>();
+            rightLineRenderer.material = new Material(Shader.Find("Sprites/Default"));
+            rightLineRenderer.startColor = Color.blue;
+            rightLineRenderer.endColor = Color.blue;
+            rightLineRenderer.startWidth = 0.1f;
+            rightLineRenderer.endWidth = 0.1f;
+            rightLineRenderer.positionCount = rightLinePoints.Length;
+            rightLineRenderer.SetPositions(rightLinePoints);
+
+            Debug.Log($"[EdgePairGenerator] Created 2 offset child edge lines for {edgeData.GetPairName()}");
+        }
+
+        /// <summary>
+        /// Creates a mesh from the 3 lines (center, left, right)
+        /// </summary>
+        private void CreateEdgeMesh(Vector3[] centerPoints, Vector3[] leftPoints, Vector3[] rightPoints)
+        {
+            if (centerPoints.Length < 2 || leftPoints.Length != centerPoints.Length || rightPoints.Length != centerPoints.Length)
+            {
+                Debug.LogWarning($"[EdgePairGenerator] Cannot create mesh - line lengths don't match or too short");
+                return;
+            }
+
+            List<Vector3> vertices = new List<Vector3>();
+            List<int> triangles = new List<int>();
+
+            // Add all vertices from all three lines (convert from world to local space)
+            // We'll interleave them: for each point index, add left, center, right
+            for (int i = 0; i < centerPoints.Length; i++)
+            {
+                // Convert world space positions to local space relative to this GameObject
+                vertices.Add(transform.InverseTransformPoint(leftPoints[i]));   // Index: i * 3 + 0
+                vertices.Add(transform.InverseTransformPoint(centerPoints[i])); // Index: i * 3 + 1
+                vertices.Add(transform.InverseTransformPoint(rightPoints[i]));  // Index: i * 3 + 2
+            }
+
+            // Create triangles connecting the strips
+            for (int i = 0; i < centerPoints.Length - 1; i++)
+            {
+                int baseIndex = i * 3;
+                int nextBaseIndex = (i + 1) * 3;
+
+                // Left strip (between left and center lines)
+                // Triangle 1: left[i], center[i], left[i+1]
+                triangles.Add(baseIndex + 0);      // left[i]
+                triangles.Add(baseIndex + 1);      // center[i]
+                triangles.Add(nextBaseIndex + 0);  // left[i+1]
+
+                // Triangle 2: center[i], center[i+1], left[i+1]
+                triangles.Add(baseIndex + 1);      // center[i]
+                triangles.Add(nextBaseIndex + 1);  // center[i+1]
+                triangles.Add(nextBaseIndex + 0);  // left[i+1]
+
+                // Right strip (between center and right lines)
+                // Triangle 1: center[i], right[i], center[i+1]
+                triangles.Add(baseIndex + 1);      // center[i]
+                triangles.Add(baseIndex + 2);      // right[i]
+                triangles.Add(nextBaseIndex + 1);  // center[i+1]
+
+                // Triangle 2: right[i], right[i+1], center[i+1]
+                triangles.Add(baseIndex + 2);      // right[i]
+                triangles.Add(nextBaseIndex + 2);  // right[i+1]
+                triangles.Add(nextBaseIndex + 1);  // center[i+1]
+            }
+
+            // Create mesh
+            Mesh edgeMesh = new Mesh();
+            edgeMesh.name = $"{edgeData.GetPairName()}_Mesh";
+            edgeMesh.vertices = vertices.ToArray();
+            edgeMesh.triangles = triangles.ToArray();
+            edgeMesh.RecalculateNormals();
+            edgeMesh.RecalculateBounds();
+
+            // Create GameObject for the mesh
+            GameObject meshObject = new GameObject("EdgeMesh");
+            meshObject.transform.SetParent(transform);
+            meshObject.transform.localPosition = Vector3.zero;
+            meshObject.transform.localRotation = Quaternion.identity;
+            meshObject.transform.localScale = Vector3.one;
+
+            MeshFilter meshFilter = meshObject.AddComponent<MeshFilter>();
+            meshFilter.mesh = edgeMesh;
+
+            MeshRenderer meshRenderer = meshObject.AddComponent<MeshRenderer>();
+            meshRenderer.material = edgeMaterial != null ? edgeMaterial : new Material(Shader.Find("Standard"));
+
+            Debug.Log($"[EdgePairGenerator] Created mesh with {vertices.Count} vertices and {triangles.Count / 3} triangles for {edgeData.GetPairName()}");
+        }
+
+        /// <summary>
+        /// Calculates perpendicular offset positions for a line
+        /// </summary>
+        private Vector3[] CalculatePerpendicularOffset(Vector3[] linePoints, float offsetDistance)
+        {
+            Vector3[] offsetPoints = new Vector3[linePoints.Length];
+
+            for (int i = 0; i < linePoints.Length; i++)
+            {
+                Vector3 perpendicular = Vector3.zero;
+
+                if (i == 0 && linePoints.Length > 1)
+                {
+                    // First point: use direction to next point
+                    Vector3 forward = linePoints[i + 1] - linePoints[i];
+                    perpendicular = GetPerpendicularXZ(forward);
+                }
+                else if (i == linePoints.Length - 1 && linePoints.Length > 1)
+                {
+                    // Last point: use direction from previous point
+                    Vector3 forward = linePoints[i] - linePoints[i - 1];
+                    perpendicular = GetPerpendicularXZ(forward);
+                }
+                else if (linePoints.Length > 1)
+                {
+                    // Middle points: average perpendicular of both segments
+                    Vector3 forwardPrev = linePoints[i] - linePoints[i - 1];
+                    Vector3 forwardNext = linePoints[i + 1] - linePoints[i];
+                    Vector3 perp1 = GetPerpendicularXZ(forwardPrev);
+                    Vector3 perp2 = GetPerpendicularXZ(forwardNext);
+                    perpendicular = (perp1 + perp2).normalized;
+                }
+
+                offsetPoints[i] = linePoints[i] + perpendicular * offsetDistance;
+            }
+
+            return offsetPoints;
+        }
+
+        /// <summary>
+        /// Gets the perpendicular vector in the XZ plane (rotated 90 degrees left)
+        /// </summary>
+        private Vector3 GetPerpendicularXZ(Vector3 direction)
+        {
+            // Perpendicular in XZ plane (rotate 90 degrees counter-clockwise around Y axis)
+            // For direction (x, y, z), perpendicular is (-z, y, x)
+            Vector3 perpendicular = new Vector3(-direction.z, 0, direction.x);
+
+            // Normalize only the XZ components
+            float length = Mathf.Sqrt(perpendicular.x * perpendicular.x + perpendicular.z * perpendicular.z);
+            if (length > 0.0001f)
+            {
+                perpendicular.x /= length;
+                perpendicular.z /= length;
+            }
+
+            return perpendicular;
         }
 
         private float CalculateHeightAtTerrain(int x, int y, int width, int height, PerlinSettings settings)
@@ -433,114 +657,6 @@ namespace LandOfTheConsumers.Procedural
             centerPixelHeights = smoothedHeights;
 
             Debug.Log($"[EdgePairGenerator] Applied smoothing to {smoothedHeights.Count} edge heights");
-        }
-
-        private void OnDrawGizmos()
-        {
-            if (edgeData == null || edgeData.centerPixels.Count == 0 || centerPixelHeights == null)
-                return;
-
-            if (cellularVisualizer == null)
-                return;
-
-            // Get world dimensions for coordinate conversion
-            Vector2Int worldSizeInBiomes = cellularVisualizer.worldSizeInBiomes;
-            const int biomeSize = 128;
-            float worldWidth = worldSizeInBiomes.x * biomeSize;
-            float worldHeight = worldSizeInBiomes.y * biomeSize;
-            float halfWidth = worldWidth * 0.5f;
-            float halfHeight = worldHeight * 0.5f;
-            int cellularPixelsPerUnit = cellularVisualizer.pixelsPerUnit;
-
-            // Draw purple sphere at first pixel
-            if (edgeData.centerPixels.Count > 0)
-            {
-                Vector2Int firstPixel = edgeData.centerPixels[0];
-                if (centerPixelHeights.ContainsKey(firstPixel))
-                {
-                    float height = centerPixelHeights[firstPixel];
-                    float worldX = (float)firstPixel.x / cellularPixelsPerUnit - halfWidth;
-                    float worldZ = (float)firstPixel.y / cellularPixelsPerUnit - halfHeight;
-
-                    Gizmos.color = new Color(0.5f, 0f, 0.5f); // Purple
-                    Gizmos.DrawSphere(new Vector3(worldX, height + 0.1f, worldZ), 0.2f);
-                }
-            }
-
-            // Draw green sphere at second pixel (after first)
-            if (edgeData.centerPixels.Count > 1)
-            {
-                Vector2Int secondPixel = edgeData.centerPixels[1];
-                if (centerPixelHeights.ContainsKey(secondPixel))
-                {
-                    float height = centerPixelHeights[secondPixel];
-                    float worldX = (float)secondPixel.x / cellularPixelsPerUnit - halfWidth;
-                    float worldZ = (float)secondPixel.y / cellularPixelsPerUnit - halfHeight;
-
-                    Gizmos.color = Color.green;
-                    Gizmos.DrawSphere(new Vector3(worldX, height + 0.1f, worldZ), 0.15f);
-                }
-            }
-
-            // Draw orange sphere at third pixel
-            if (edgeData.centerPixels.Count > 2)
-            {
-                Vector2Int thirdPixel = edgeData.centerPixels[2];
-                if (centerPixelHeights.ContainsKey(thirdPixel))
-                {
-                    float height = centerPixelHeights[thirdPixel];
-                    float worldX = (float)thirdPixel.x / cellularPixelsPerUnit - halfWidth;
-                    float worldZ = (float)thirdPixel.y / cellularPixelsPerUnit - halfHeight;
-
-                    Gizmos.color = new Color(1f, 0.5f, 0f); // Orange
-                    Gizmos.DrawSphere(new Vector3(worldX, height + 0.1f, worldZ), 0.15f);
-                }
-            }
-
-            // Draw orange sphere at third-to-last pixel
-            if (edgeData.centerPixels.Count > 3)
-            {
-                Vector2Int thirdToLastPixel = edgeData.centerPixels[edgeData.centerPixels.Count - 3];
-                if (centerPixelHeights.ContainsKey(thirdToLastPixel))
-                {
-                    float height = centerPixelHeights[thirdToLastPixel];
-                    float worldX = (float)thirdToLastPixel.x / cellularPixelsPerUnit - halfWidth;
-                    float worldZ = (float)thirdToLastPixel.y / cellularPixelsPerUnit - halfHeight;
-
-                    Gizmos.color = new Color(1f, 0.5f, 0f); // Orange
-                    Gizmos.DrawSphere(new Vector3(worldX, height + 0.1f, worldZ), 0.15f);
-                }
-            }
-
-            // Draw green sphere at second-to-last pixel (before last)
-            if (edgeData.centerPixels.Count > 2)
-            {
-                Vector2Int secondToLastPixel = edgeData.centerPixels[edgeData.centerPixels.Count - 2];
-                if (centerPixelHeights.ContainsKey(secondToLastPixel))
-                {
-                    float height = centerPixelHeights[secondToLastPixel];
-                    float worldX = (float)secondToLastPixel.x / cellularPixelsPerUnit - halfWidth;
-                    float worldZ = (float)secondToLastPixel.y / cellularPixelsPerUnit - halfHeight;
-
-                    Gizmos.color = Color.green;
-                    Gizmos.DrawSphere(new Vector3(worldX, height + 0.1f, worldZ), 0.15f);
-                }
-            }
-
-            // Draw red sphere at last pixel
-            if (edgeData.centerPixels.Count > 1)
-            {
-                Vector2Int lastPixel = edgeData.centerPixels[edgeData.centerPixels.Count - 1];
-                if (centerPixelHeights.ContainsKey(lastPixel))
-                {
-                    float height = centerPixelHeights[lastPixel];
-                    float worldX = (float)lastPixel.x / cellularPixelsPerUnit - halfWidth;
-                    float worldZ = (float)lastPixel.y / cellularPixelsPerUnit - halfHeight;
-
-                    Gizmos.color = Color.red;
-                    Gizmos.DrawSphere(new Vector3(worldX, height + 0.1f, worldZ), 0.2f);
-                }
-            }
         }
     }
 }
