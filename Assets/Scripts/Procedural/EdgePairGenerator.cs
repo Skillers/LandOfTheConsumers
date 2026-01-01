@@ -8,8 +8,8 @@ using UnityEditor;
 namespace LandOfTheConsumers.Procedural
 {
     /// <summary>
-    /// Generates mesh for a single edge pair between two regions.
-    /// Creates chunked terrain following the same pattern as regions, with averaged heights.
+    /// Generates line visualization for edge between two regions.
+    /// Creates a yellow LineRenderer along the center line showing averaged heights.
     /// </summary>
     public class EdgePairGenerator : MonoBehaviour
     {
@@ -18,11 +18,9 @@ namespace LandOfTheConsumers.Procedural
         [HideInInspector] public RegionQuadVisualizer regionQuadVisualizer;
         [HideInInspector] public Material edgeMaterial;
 
-        private const int chunkSize = 32;  // Match region chunk size
         private const int pixelsPerUnit = 2;  // LOD0 only
-        private const int pixelSamplingStep = 1;  // LOD0 only
 
-        private List<GameObject> chunks = new List<GameObject>();
+        private LineRenderer lineRenderer;
         private bool isGenerating = false;
         private Dictionary<Vector2Int, float> centerPixelHeights; // Height for each center pixel
 
@@ -35,9 +33,9 @@ namespace LandOfTheConsumers.Procedural
 
         public void GenerateEdgeMesh()
         {
-            if (edgeData == null || edgeData.edgePixels.Count == 0)
+            if (edgeData == null || edgeData.centerPixels.Count == 0)
             {
-                Debug.LogWarning($"[EdgePairGenerator] No edge pixels for {edgeData?.GetPairName()}");
+                Debug.LogWarning($"[EdgePairGenerator] No center pixels for {edgeData?.GetPairName()}");
                 OnGenerationComplete?.Invoke();
                 return;
             }
@@ -48,25 +46,21 @@ namespace LandOfTheConsumers.Procedural
                 return;
             }
 
-            StartCoroutine(GenerateEdgeMeshCoroutine());
+            StartCoroutine(GenerateEdgeLineCoroutine());
         }
 
-        private IEnumerator GenerateEdgeMeshCoroutine()
+        private IEnumerator GenerateEdgeLineCoroutine()
         {
             isGenerating = true;
 
-            // Clear existing chunks
-            foreach (var chunk in chunks)
+            // Clear existing LineRenderer if any
+            if (lineRenderer != null)
             {
-                if (chunk != null)
-                {
-                    if (Application.isPlaying)
-                        Destroy(chunk);
-                    else
-                        DestroyImmediate(chunk);
-                }
+                if (Application.isPlaying)
+                    Destroy(lineRenderer);
+                else
+                    DestroyImmediate(lineRenderer);
             }
-            chunks.Clear();
 
             // Get world dimensions for coordinate conversion
             Vector2Int worldSizeInBiomes = cellularVisualizer.worldSizeInBiomes;
@@ -77,17 +71,8 @@ namespace LandOfTheConsumers.Procedural
             float halfHeight = worldHeight * 0.5f;
             int cellularPixelsPerUnit = cellularVisualizer.pixelsPerUnit;
 
-            // Find bounds of edge pixels
-            int minX = int.MaxValue, minY = int.MaxValue;
-            int maxX = int.MinValue, maxY = int.MinValue;
-
-            foreach (var pixel in edgeData.edgePixels)
-            {
-                minX = Mathf.Min(minX, pixel.x);
-                minY = Mathf.Min(minY, pixel.y);
-                maxX = Mathf.Max(maxX, pixel.x);
-                maxY = Mathf.Max(maxY, pixel.y);
-            }
+            // Note: We don't need bounds for center pixels since we're just drawing a line
+            // The bounds calculation is kept for potential future use
 
             // Get presets for both regions
             if (!regionQuadVisualizer.regionPresetMapping.ContainsKey(edgeData.regionIdA) ||
@@ -147,111 +132,151 @@ namespace LandOfTheConsumers.Procedural
             int regionB_terrainWidth = (regionB_maxX - regionB_minX + 1) * pixelsPerUnit;
             int regionB_terrainHeight = (regionB_maxY - regionB_minY + 1) * pixelsPerUnit;
 
-            // Calculate heights for center pixels only (the ribbon's centerline)
-            // These heights will be used for the entire 3-pixel width at each point
+            // Calculate heights for center pixels - average of both regions' heights
             centerPixelHeights = new Dictionary<Vector2Int, float>();
 
             Debug.Log($"[EdgePairGenerator] Calculating heights for {edgeData.centerPixels.Count} center pixels");
 
-            foreach (var centerPixel in edgeData.centerPixels)
+            for (int i = 0; i < edgeData.centerPixels.Count; i++)
             {
+                Vector2Int centerPixel = edgeData.centerPixels[i];
+                bool isInFirstFive = i < 5;
+                bool isInLastFive = i >= edgeData.centerPixels.Count - 5;
+
                 // Calculate height from region A's perspective
                 float heightA = 0f;
-                // Use the center of the pixel for height sampling
+                bool hasValidHeightA = false;
                 int terrainA_X = (centerPixel.x - regionA_minX) * pixelsPerUnit + pixelsPerUnit / 2;
                 int terrainA_Y = (centerPixel.y - regionA_minY) * pixelsPerUnit + pixelsPerUnit / 2;
                 if (terrainA_X >= 0 && terrainA_X < regionA_terrainWidth &&
                     terrainA_Y >= 0 && terrainA_Y < regionA_terrainHeight)
                 {
                     heightA = CalculateHeightAtTerrain(terrainA_X, terrainA_Y, regionA_terrainWidth, regionA_terrainHeight, tempSettingsA);
+                    hasValidHeightA = true;
+                }
+
+                // If heightA is invalid and in first 5, search forward
+                if (!hasValidHeightA && isInFirstFive)
+                {
+                    heightA = FindValidHeightForward(i, regionA_minX, regionA_minY, regionA_terrainWidth, regionA_terrainHeight, tempSettingsA, out hasValidHeightA);
+                    if (hasValidHeightA)
+                    {
+                        Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Pixel {i} at {centerPixel} - Using forward heightA");
+                    }
+                }
+                // If heightA is invalid and in last 5, search backward
+                else if (!hasValidHeightA && isInLastFive)
+                {
+                    heightA = FindValidHeightBackward(i, regionA_minX, regionA_minY, regionA_terrainWidth, regionA_terrainHeight, tempSettingsA, out hasValidHeightA);
+                    if (hasValidHeightA)
+                    {
+                        Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Pixel {i} at {centerPixel} - Using backward heightA");
+                    }
                 }
 
                 // Calculate height from region B's perspective
                 float heightB = 0f;
+                bool hasValidHeightB = false;
                 int terrainB_X = (centerPixel.x - regionB_minX) * pixelsPerUnit + pixelsPerUnit / 2;
                 int terrainB_Y = (centerPixel.y - regionB_minY) * pixelsPerUnit + pixelsPerUnit / 2;
                 if (terrainB_X >= 0 && terrainB_X < regionB_terrainWidth &&
                     terrainB_Y >= 0 && terrainB_Y < regionB_terrainHeight)
                 {
                     heightB = CalculateHeightAtTerrain(terrainB_X, terrainB_Y, regionB_terrainWidth, regionB_terrainHeight, tempSettingsB);
+                    hasValidHeightB = true;
+                }
+
+                // If heightB is invalid and in first 5, search forward
+                if (!hasValidHeightB && isInFirstFive)
+                {
+                    heightB = FindValidHeightForward(i, regionB_minX, regionB_minY, regionB_terrainWidth, regionB_terrainHeight, tempSettingsB, out hasValidHeightB);
+                    if (hasValidHeightB)
+                    {
+                        Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Pixel {i} at {centerPixel} - Using forward heightB");
+                    }
+                }
+                // If heightB is invalid and in last 5, search backward
+                else if (!hasValidHeightB && isInLastFive)
+                {
+                    heightB = FindValidHeightBackward(i, regionB_minX, regionB_minY, regionB_terrainWidth, regionB_terrainHeight, tempSettingsB, out hasValidHeightB);
+                    if (hasValidHeightB)
+                    {
+                        Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Pixel {i} at {centerPixel} - Using backward heightB");
+                    }
                 }
 
                 // Average the two heights and store for this center pixel
+                // If one or both heights are still invalid (0), the average will reflect that
                 float averagedHeight = (heightA + heightB) * 0.5f;
                 centerPixelHeights[centerPixel] = averagedHeight;
             }
 
-            // Calculate chunks
-            int chunkMinX = minX / chunkSize;
-            int chunkMinY = minY / chunkSize;
-            int chunkMaxX = maxX / chunkSize;
-            int chunkMaxY = maxY / chunkSize;
+            // Validate critical pixels (first 3 and last 3) have proper height data
+            ValidateCriticalPixelHeights();
 
-            int chunksCreated = 0;
-            int totalChunksToCreate = 0;
+            // Apply smoothing pass to reduce spikes, steps, and flats
+            SmoothEdgeHeights();
 
-            // Count chunks
-            for (int chunkX = chunkMinX; chunkX <= chunkMaxX; chunkX++)
+            // Create LineRenderer for the center line
+            lineRenderer = gameObject.AddComponent<LineRenderer>();
+
+            // Configure LineRenderer appearance
+            lineRenderer.material = new Material(Shader.Find("Sprites/Default"));
+            lineRenderer.startColor = Color.yellow;
+            lineRenderer.endColor = Color.yellow;
+            lineRenderer.startWidth = 0.1f;
+            lineRenderer.endWidth = 0.1f;
+
+            // Build smoothed line with interpolated points (2x density)
+            List<Vector3> linePoints = new List<Vector3>();
+
+            for (int i = 0; i < edgeData.centerPixels.Count; i++)
             {
-                for (int chunkY = chunkMinY; chunkY <= chunkMaxY; chunkY++)
+                Vector2Int centerPixel = edgeData.centerPixels[i];
+
+                // Get the smoothed height for this pixel
+                float height = centerPixelHeights.ContainsKey(centerPixel) ? centerPixelHeights[centerPixel] : 0f;
+
+                // Convert pixel coordinates to world coordinates
+                float worldX = (float)centerPixel.x / cellularPixelsPerUnit - halfWidth;
+                float worldZ = (float)centerPixel.y / cellularPixelsPerUnit - halfHeight;
+
+                // Add small offset to prevent z-fighting
+                height += 0.02f;
+
+                Vector3 worldPos = new Vector3(worldX, height, worldZ);
+                linePoints.Add(worldPos);
+
+                // Add interpolated point between this pixel and the next (except for last pixel)
+                if (i < edgeData.centerPixels.Count - 1)
                 {
-                    if (ChunkContainsEdgePixels(chunkX, chunkY))
-                    {
-                        totalChunksToCreate++;
-                    }
+                    Vector2Int nextPixel = edgeData.centerPixels[i + 1];
+
+                    // Get smoothed height for next pixel
+                    float nextHeight = centerPixelHeights.ContainsKey(nextPixel) ? centerPixelHeights[nextPixel] : 0f;
+                    nextHeight += 0.02f;
+
+                    // Interpolate position and height (50% between neighbors)
+                    float interpWorldX = (float)nextPixel.x / cellularPixelsPerUnit - halfWidth;
+                    float interpWorldZ = (float)nextPixel.y / cellularPixelsPerUnit - halfHeight;
+
+                    Vector3 interpPos = new Vector3(
+                        (worldX + interpWorldX) * 0.5f,
+                        (height + nextHeight) * 0.5f,
+                        (worldZ + interpWorldZ) * 0.5f
+                    );
+
+                    linePoints.Add(interpPos);
                 }
             }
 
-            Debug.Log($"[EdgePairGenerator] {edgeData.GetPairName()} will generate {totalChunksToCreate} chunks");
-
-            // Create chunks
-            for (int chunkX = chunkMinX; chunkX <= chunkMaxX; chunkX++)
-            {
-                for (int chunkY = chunkMinY; chunkY <= chunkMaxY; chunkY++)
-                {
-                    if (ChunkContainsEdgePixels(chunkX, chunkY))
-                    {
-                        CreateChunk(chunkX, chunkY, minX, minY, cellularPixelsPerUnit, halfWidth, halfHeight);
-                        chunksCreated++;
-
-                        // Yield every 5 chunks to prevent freezing
-                        if (chunksCreated % 5 == 0)
-                        {
-                            #if UNITY_EDITOR
-                            if (!Application.isPlaying)
-                            {
-                                EditorApplication.QueuePlayerLoopUpdate();
-                            }
-                            #endif
-                            yield return null;
-                        }
-                    }
-                }
-            }
+            // Set all positions to LineRenderer
+            lineRenderer.positionCount = linePoints.Count;
+            lineRenderer.SetPositions(linePoints.ToArray());
 
             isGenerating = false;
-            Debug.Log($"[EdgePairGenerator] Completed {edgeData.GetPairName()} with {chunksCreated} chunks");
+            Debug.Log($"[EdgePairGenerator] Completed {edgeData.GetPairName()} with {linePoints.Count} line points (from {edgeData.centerPixels.Count} center pixels)");
             OnGenerationComplete?.Invoke();
-        }
-
-        private bool ChunkContainsEdgePixels(int chunkX, int chunkY)
-        {
-            int startX = chunkX * chunkSize;
-            int startY = chunkY * chunkSize;
-            int endX = startX + chunkSize;
-            int endY = startY + chunkSize;
-
-            for (int x = startX; x <= endX; x++)
-            {
-                for (int y = startY; y <= endY; y++)
-                {
-                    if (edgeData.edgePixelSet.Contains(new Vector2Int(x, y)))
-                    {
-                        return true;
-                    }
-                }
-            }
-            return false;
         }
 
         private float CalculateHeightAtTerrain(int x, int y, int width, int height, PerlinSettings settings)
@@ -266,196 +291,256 @@ namespace LandOfTheConsumers.Procedural
         }
 
         /// <summary>
-        /// Find the nearest center pixel to a given edge pixel.
-        /// The edge is like a ribbon - all pixels across the width should use the same center pixel's height.
+        /// Searches forward through pixels to find valid height data for a region
         /// </summary>
-        private Vector2Int FindNearestCenterPixel(Vector2Int edgePixel)
+        private float FindValidHeightForward(int startIndex, int regionMinX, int regionMinY, int terrainWidth, int terrainHeight, PerlinSettings settings, out bool foundValid)
         {
-            // If this pixel IS a center pixel, return it
-            if (edgeData.centerPixelSet.Contains(edgePixel))
-            {
-                return edgePixel;
-            }
+            foundValid = false;
 
-            // Otherwise, find the closest center pixel (Manhattan distance)
-            Vector2Int nearest = edgeData.centerPixels[0];
-            int minDistance = int.MaxValue;
-
-            foreach (var centerPixel in edgeData.centerPixels)
+            // Search forward through remaining pixels
+            for (int j = startIndex + 1; j < edgeData.centerPixels.Count; j++)
             {
-                int distance = Mathf.Abs(centerPixel.x - edgePixel.x) + Mathf.Abs(centerPixel.y - edgePixel.y);
-                if (distance < minDistance)
+                Vector2Int searchPixel = edgeData.centerPixels[j];
+                int terrainX = (searchPixel.x - regionMinX) * pixelsPerUnit + pixelsPerUnit / 2;
+                int terrainY = (searchPixel.y - regionMinY) * pixelsPerUnit + pixelsPerUnit / 2;
+
+                if (terrainX >= 0 && terrainX < terrainWidth &&
+                    terrainY >= 0 && terrainY < terrainHeight)
                 {
-                    minDistance = distance;
-                    nearest = centerPixel;
+                    foundValid = true;
+                    return CalculateHeightAtTerrain(terrainX, terrainY, terrainWidth, terrainHeight, settings);
                 }
             }
 
-            return nearest;
+            // If no valid height found forward, return 0
+            return 0f;
         }
 
-        private void CreateChunk(int chunkX, int chunkY, int minPixelX, int minPixelY,
-                                int cellularPixelsPerUnit, float halfWidth, float halfHeight)
+        /// <summary>
+        /// Searches backward through pixels to find valid height data for a region
+        /// </summary>
+        private float FindValidHeightBackward(int startIndex, int regionMinX, int regionMinY, int terrainWidth, int terrainHeight, PerlinSettings settings, out bool foundValid)
         {
-            GameObject chunkObj = new GameObject($"Chunk_{chunkX}_{chunkY}");
-            chunkObj.transform.parent = this.transform;
-            chunks.Add(chunkObj);
+            foundValid = false;
 
-            // Calculate pixel range
-            int pixelStartX = chunkX * chunkSize;
-            int pixelStartY = chunkY * chunkSize;
-            int pixelEndX = pixelStartX + chunkSize;
-            int pixelEndY = pixelStartY + chunkSize;
-
-            // Position chunk in world space
-            float chunkWorldX = (pixelStartX + pixelEndX) / 2.0f / cellularPixelsPerUnit - halfWidth;
-            float chunkWorldZ = (pixelStartY + pixelEndY) / 2.0f / cellularPixelsPerUnit - halfHeight;
-            Vector3 chunkPosition = new Vector3(chunkWorldX, 0, chunkWorldZ);
-            chunkObj.transform.position = chunkPosition;
-
-            MeshFilter meshFilter = chunkObj.AddComponent<MeshFilter>();
-            MeshRenderer meshRenderer = chunkObj.AddComponent<MeshRenderer>();
-
-            // Use provided material or create default gray material for edges
-            if (edgeMaterial != null)
+            // Search backward through previous pixels
+            for (int j = startIndex - 1; j >= 0; j--)
             {
-                meshRenderer.material = edgeMaterial;
-            }
-            else
-            {
-                meshRenderer.material = new Material(Shader.Find("Standard"));
-                meshRenderer.material.color = new Color(0.5f, 0.5f, 0.5f); // Gray
+                Vector2Int searchPixel = edgeData.centerPixels[j];
+                int terrainX = (searchPixel.x - regionMinX) * pixelsPerUnit + pixelsPerUnit / 2;
+                int terrainY = (searchPixel.y - regionMinY) * pixelsPerUnit + pixelsPerUnit / 2;
+
+                if (terrainX >= 0 && terrainX < terrainWidth &&
+                    terrainY >= 0 && terrainY < terrainHeight)
+                {
+                    foundValid = true;
+                    return CalculateHeightAtTerrain(terrainX, terrainY, terrainWidth, terrainHeight, settings);
+                }
             }
 
-            // Create mesh
-            Mesh mesh = CreateChunkMeshForEdge(pixelStartX, pixelStartY, pixelEndX, pixelEndY,
-                                              minPixelX, minPixelY, cellularPixelsPerUnit,
-                                              halfWidth, halfHeight);
-            meshFilter.mesh = mesh;
+            // If no valid height found backward, return 0
+            return 0f;
         }
 
-        private Mesh CreateChunkMeshForEdge(int pixelStartX, int pixelStartY, int pixelEndX, int pixelEndY,
-                                           int minPixelX, int minPixelY, int cellularPixelsPerUnit,
-                                           float halfWidth, float halfHeight)
+        /// <summary>
+        /// Validates that critical pixels (first 5 and last 5) have proper height data
+        /// </summary>
+        private void ValidateCriticalPixelHeights()
         {
-            List<Vector3> vertices = new List<Vector3>();
-            List<int> triangles = new List<int>();
-            List<Color> colors = new List<Color>();
-
-            Dictionary<Vector2Int, int> vertexIndexMap = new Dictionary<Vector2Int, int>();
-
-            // Generate vertices for edge pixels
-            for (int pixelX = pixelStartX; pixelX <= pixelEndX; pixelX++)
+            if (edgeData.centerPixels.Count < 10)
             {
-                for (int pixelY = pixelStartY; pixelY <= pixelEndY; pixelY++)
+                Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} has only {edgeData.centerPixels.Count} pixels - cannot validate first/last 5");
+                return;
+            }
+
+            // Check first 5 pixels
+            for (int i = 0; i < 5; i++)
+            {
+                Vector2Int pixel = edgeData.centerPixels[i];
+                if (!centerPixelHeights.ContainsKey(pixel))
                 {
-                    Vector2Int pixel = new Vector2Int(pixelX, pixelY);
-
-                    // Only process pixels that belong to this edge
-                    if (edgeData.edgePixelSet.Contains(pixel) &&
-                        pixelX % pixelSamplingStep == 0 && pixelY % pixelSamplingStep == 0)
-                    {
-                        // Find the nearest center pixel to get the ribbon's height at this point
-                        Vector2Int nearestCenter = FindNearestCenterPixel(pixel);
-                        float ribbonHeight = 0f;
-
-                        if (centerPixelHeights.ContainsKey(nearestCenter))
-                        {
-                            ribbonHeight = centerPixelHeights[nearestCenter];
-                        }
-
-                        // Each pixel generates (pixelsPerUnit + 1)² vertices (3x3 for LOD0)
-                        for (int subX = 0; subX <= pixelsPerUnit; subX++)
-                        {
-                            for (int subY = 0; subY <= pixelsPerUnit; subY++)
-                            {
-                                int terrainX = (pixelX - minPixelX) * pixelsPerUnit + subX;
-                                int terrainY = (pixelY - minPixelY) * pixelsPerUnit + subY;
-                                Vector2Int terrainCoord = new Vector2Int(terrainX, terrainY);
-
-                                if (vertexIndexMap.ContainsKey(terrainCoord))
-                                    continue;
-
-                                // Use the ribbon height (same for entire width)
-                                float height = ribbonHeight;
-
-                                // Add small Y offset to prevent z-fighting with regions
-                                height += 0.01f;
-
-                                // Calculate world position (local to chunk)
-                                float worldX = pixelX + (subX / (float)pixelsPerUnit);
-                                float worldZ = pixelY + (subY / (float)pixelsPerUnit);
-                                float localX = worldX / cellularPixelsPerUnit - halfWidth
-                                             - (pixelStartX + pixelEndX) / 2.0f / cellularPixelsPerUnit + halfWidth;
-                                float localZ = worldZ / cellularPixelsPerUnit - halfHeight
-                                             - (pixelStartY + pixelEndY) / 2.0f / cellularPixelsPerUnit + halfHeight;
-
-                                Vector3 vertexPos = new Vector3(localX, height, localZ);
-
-                                int vertexIndex = vertices.Count;
-                                vertices.Add(vertexPos);
-                                colors.Add(Color.white);
-                                vertexIndexMap[terrainCoord] = vertexIndex;
-                            }
-                        }
-                    }
+                    Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - First pixel {i} at {pixel} is missing height data!");
+                }
+                else if (Mathf.Approximately(centerPixelHeights[pixel], 0f))
+                {
+                    Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - First pixel {i} at {pixel} has zero height (may indicate sampling issue)");
                 }
             }
 
-            // Generate triangles (same logic as RegionTerrainGenerator)
-            for (int pixelX = pixelStartX; pixelX < pixelEndX; pixelX++)
+            // Check last 5 pixels
+            int count = edgeData.centerPixels.Count;
+            for (int i = count - 5; i < count; i++)
             {
-                for (int pixelY = pixelStartY; pixelY < pixelEndY; pixelY++)
+                Vector2Int pixel = edgeData.centerPixels[i];
+                if (!centerPixelHeights.ContainsKey(pixel))
                 {
-                    Vector2Int pixel = new Vector2Int(pixelX, pixelY);
-
-                    if (edgeData.edgePixelSet.Contains(pixel) &&
-                        pixelX % pixelSamplingStep == 0 && pixelY % pixelSamplingStep == 0)
-                    {
-                        for (int subX = 0; subX < pixelsPerUnit; subX++)
-                        {
-                            for (int subY = 0; subY < pixelsPerUnit; subY++)
-                            {
-                                int terrainX = (pixelX - minPixelX) * pixelsPerUnit + subX;
-                                int terrainY = (pixelY - minPixelY) * pixelsPerUnit + subY;
-
-                                Vector2Int tl = new Vector2Int(terrainX, terrainY);
-                                Vector2Int tr = new Vector2Int(terrainX + 1, terrainY);
-                                Vector2Int bl = new Vector2Int(terrainX, terrainY + 1);
-                                Vector2Int br = new Vector2Int(terrainX + 1, terrainY + 1);
-
-                                if (vertexIndexMap.ContainsKey(tl) && vertexIndexMap.ContainsKey(tr) &&
-                                    vertexIndexMap.ContainsKey(bl) && vertexIndexMap.ContainsKey(br))
-                                {
-                                    int tlIdx = vertexIndexMap[tl];
-                                    int trIdx = vertexIndexMap[tr];
-                                    int blIdx = vertexIndexMap[bl];
-                                    int brIdx = vertexIndexMap[br];
-
-                                    // First triangle
-                                    triangles.Add(tlIdx);
-                                    triangles.Add(blIdx);
-                                    triangles.Add(trIdx);
-
-                                    // Second triangle
-                                    triangles.Add(trIdx);
-                                    triangles.Add(blIdx);
-                                    triangles.Add(brIdx);
-                                }
-                            }
-                        }
-                    }
+                    Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Last pixel {count - 1 - i} at {pixel} is missing height data!");
+                }
+                else if (Mathf.Approximately(centerPixelHeights[pixel], 0f))
+                {
+                    Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Last pixel {count - 1 - i} at {pixel} has zero height (may indicate sampling issue)");
                 }
             }
 
-            Mesh mesh = new Mesh();
-            mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-            mesh.vertices = vertices.ToArray();
-            mesh.triangles = triangles.ToArray();
-            mesh.colors = colors.ToArray();
-            mesh.RecalculateNormals();
+            Debug.Log($"[EdgePairGenerator] {edgeData.GetPairName()} - Validated critical pixels (first 5 and last 5)");
+        }
 
-            return mesh;
+        /// <summary>
+        /// Smooths edge heights to reduce spikes, steps, and flats.
+        /// Middle pixels take 40% from each side (prev and next).
+        /// First and last pixels take 60% from their single neighbor.
+        /// </summary>
+        private void SmoothEdgeHeights()
+        {
+            if (edgeData.centerPixels.Count < 2)
+                return; // No smoothing needed for single pixel
+
+            Dictionary<Vector2Int, float> smoothedHeights = new Dictionary<Vector2Int, float>();
+
+            for (int i = 0; i < edgeData.centerPixels.Count; i++)
+            {
+                Vector2Int currentPixel = edgeData.centerPixels[i];
+                float currentHeight = centerPixelHeights.ContainsKey(currentPixel) ? centerPixelHeights[currentPixel] : 0f;
+
+                float smoothedHeight = currentHeight;
+
+                bool isFirstPixel = (i == 0);
+                bool isLastPixel = (i == edgeData.centerPixels.Count - 1);
+
+                // Determine smoothing amount based on position
+                float smoothingAmount = (isFirstPixel || isLastPixel) ? 0.6f : 0.4f;
+
+                // Add smoothing from previous pixel
+                if (i > 0)
+                {
+                    Vector2Int prevPixel = edgeData.centerPixels[i - 1];
+                    float prevHeight = centerPixelHeights.ContainsKey(prevPixel) ? centerPixelHeights[prevPixel] : 0f;
+                    smoothedHeight += smoothingAmount * (prevHeight - currentHeight);
+                }
+
+                // Add smoothing from next pixel
+                if (i < edgeData.centerPixels.Count - 1)
+                {
+                    Vector2Int nextPixel = edgeData.centerPixels[i + 1];
+                    float nextHeight = centerPixelHeights.ContainsKey(nextPixel) ? centerPixelHeights[nextPixel] : 0f;
+                    smoothedHeight += smoothingAmount * (nextHeight - currentHeight);
+                }
+
+                smoothedHeights[currentPixel] = smoothedHeight;
+            }
+
+            // Replace original heights with smoothed heights
+            centerPixelHeights = smoothedHeights;
+
+            Debug.Log($"[EdgePairGenerator] Applied smoothing to {smoothedHeights.Count} edge heights");
+        }
+
+        private void OnDrawGizmos()
+        {
+            if (edgeData == null || edgeData.centerPixels.Count == 0 || centerPixelHeights == null)
+                return;
+
+            if (cellularVisualizer == null)
+                return;
+
+            // Get world dimensions for coordinate conversion
+            Vector2Int worldSizeInBiomes = cellularVisualizer.worldSizeInBiomes;
+            const int biomeSize = 128;
+            float worldWidth = worldSizeInBiomes.x * biomeSize;
+            float worldHeight = worldSizeInBiomes.y * biomeSize;
+            float halfWidth = worldWidth * 0.5f;
+            float halfHeight = worldHeight * 0.5f;
+            int cellularPixelsPerUnit = cellularVisualizer.pixelsPerUnit;
+
+            // Draw purple sphere at first pixel
+            if (edgeData.centerPixels.Count > 0)
+            {
+                Vector2Int firstPixel = edgeData.centerPixels[0];
+                if (centerPixelHeights.ContainsKey(firstPixel))
+                {
+                    float height = centerPixelHeights[firstPixel];
+                    float worldX = (float)firstPixel.x / cellularPixelsPerUnit - halfWidth;
+                    float worldZ = (float)firstPixel.y / cellularPixelsPerUnit - halfHeight;
+
+                    Gizmos.color = new Color(0.5f, 0f, 0.5f); // Purple
+                    Gizmos.DrawSphere(new Vector3(worldX, height + 0.1f, worldZ), 0.2f);
+                }
+            }
+
+            // Draw green sphere at second pixel (after first)
+            if (edgeData.centerPixels.Count > 1)
+            {
+                Vector2Int secondPixel = edgeData.centerPixels[1];
+                if (centerPixelHeights.ContainsKey(secondPixel))
+                {
+                    float height = centerPixelHeights[secondPixel];
+                    float worldX = (float)secondPixel.x / cellularPixelsPerUnit - halfWidth;
+                    float worldZ = (float)secondPixel.y / cellularPixelsPerUnit - halfHeight;
+
+                    Gizmos.color = Color.green;
+                    Gizmos.DrawSphere(new Vector3(worldX, height + 0.1f, worldZ), 0.15f);
+                }
+            }
+
+            // Draw orange sphere at third pixel
+            if (edgeData.centerPixels.Count > 2)
+            {
+                Vector2Int thirdPixel = edgeData.centerPixels[2];
+                if (centerPixelHeights.ContainsKey(thirdPixel))
+                {
+                    float height = centerPixelHeights[thirdPixel];
+                    float worldX = (float)thirdPixel.x / cellularPixelsPerUnit - halfWidth;
+                    float worldZ = (float)thirdPixel.y / cellularPixelsPerUnit - halfHeight;
+
+                    Gizmos.color = new Color(1f, 0.5f, 0f); // Orange
+                    Gizmos.DrawSphere(new Vector3(worldX, height + 0.1f, worldZ), 0.15f);
+                }
+            }
+
+            // Draw orange sphere at third-to-last pixel
+            if (edgeData.centerPixels.Count > 3)
+            {
+                Vector2Int thirdToLastPixel = edgeData.centerPixels[edgeData.centerPixels.Count - 3];
+                if (centerPixelHeights.ContainsKey(thirdToLastPixel))
+                {
+                    float height = centerPixelHeights[thirdToLastPixel];
+                    float worldX = (float)thirdToLastPixel.x / cellularPixelsPerUnit - halfWidth;
+                    float worldZ = (float)thirdToLastPixel.y / cellularPixelsPerUnit - halfHeight;
+
+                    Gizmos.color = new Color(1f, 0.5f, 0f); // Orange
+                    Gizmos.DrawSphere(new Vector3(worldX, height + 0.1f, worldZ), 0.15f);
+                }
+            }
+
+            // Draw green sphere at second-to-last pixel (before last)
+            if (edgeData.centerPixels.Count > 2)
+            {
+                Vector2Int secondToLastPixel = edgeData.centerPixels[edgeData.centerPixels.Count - 2];
+                if (centerPixelHeights.ContainsKey(secondToLastPixel))
+                {
+                    float height = centerPixelHeights[secondToLastPixel];
+                    float worldX = (float)secondToLastPixel.x / cellularPixelsPerUnit - halfWidth;
+                    float worldZ = (float)secondToLastPixel.y / cellularPixelsPerUnit - halfHeight;
+
+                    Gizmos.color = Color.green;
+                    Gizmos.DrawSphere(new Vector3(worldX, height + 0.1f, worldZ), 0.15f);
+                }
+            }
+
+            // Draw red sphere at last pixel
+            if (edgeData.centerPixels.Count > 1)
+            {
+                Vector2Int lastPixel = edgeData.centerPixels[edgeData.centerPixels.Count - 1];
+                if (centerPixelHeights.ContainsKey(lastPixel))
+                {
+                    float height = centerPixelHeights[lastPixel];
+                    float worldX = (float)lastPixel.x / cellularPixelsPerUnit - halfWidth;
+                    float worldZ = (float)lastPixel.y / cellularPixelsPerUnit - halfHeight;
+
+                    Gizmos.color = Color.red;
+                    Gizmos.DrawSphere(new Vector3(worldX, height + 0.1f, worldZ), 0.2f);
+                }
+            }
         }
     }
 }

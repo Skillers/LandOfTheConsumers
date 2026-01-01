@@ -144,6 +144,13 @@ namespace LandOfTheConsumers.Procedural
 
             Debug.Log($"[EdgeManager] Found {allEdges.Count} unique edge pairs");
 
+            // Build ordered center lines from segments for each edge
+            foreach (var edgeData in allEdges)
+            {
+                edgeData.BuildOrderedCenterLine();
+                Debug.Log($"[EdgeManager] {edgeData.GetPairName()}: {edgeData.centerSegments.Count} segments -> {edgeData.centerPixels.Count} ordered pixels");
+            }
+
             // Build generation queue
             BuildEdgeGenerationQueue();
 
@@ -155,7 +162,7 @@ namespace LandOfTheConsumers.Procedural
         }
 
         /// <summary>
-        /// Rasterizes an edge segment from corner1 to corner2 and adds pixels to edgeData
+        /// Rasterizes an edge segment from corner1 to corner2 and adds it as a segment to edgeData
         /// </summary>
         private void RasterizeEdgeSegment(EdgeData edgeData, Vector2 corner1World, Vector2 corner2World)
         {
@@ -170,16 +177,13 @@ namespace LandOfTheConsumers.Procedural
             // 1. Rasterize 1-pixel-wide line using Bresenham's algorithm
             List<Vector2Int> centerLine = BresenhamLine(x0, y0, x1, y1);
 
-            // 2. Store center line pixels (for height calculation)
-            foreach (var pixel in centerLine)
-            {
-                edgeData.AddCenterPixel(pixel);
-            }
+            // 2. Store center line segment (will be ordered later)
+            edgeData.AddCenterSegment(centerLine);
 
             // 3. Expand to 3-pixel width
             HashSet<Vector2Int> thickLine = ExpandTo3PixelWidth(centerLine);
 
-            // 4. Add all pixels to edge data (for mesh generation)
+            // 4. Add all pixels to edge data (for potential future use)
             foreach (var pixel in thickLine)
             {
                 edgeData.AddPixel(pixel);
