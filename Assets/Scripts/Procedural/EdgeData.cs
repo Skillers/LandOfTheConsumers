@@ -33,6 +33,12 @@ namespace LandOfTheConsumers.Procedural
         public List<Vector2Int> centerPixels;
 
         /// <summary>
+        /// Perpendicular direction vector (1 unit length) for this edge
+        /// Points perpendicular to the edge direction (90 degrees counter-clockwise)
+        /// </summary>
+        public Vector2 perpendicularDirection;
+
+        /// <summary>
         /// HashSet for O(1) lookup of center pixel membership
         /// </summary>
         public HashSet<Vector2Int> centerPixelSet;
@@ -63,6 +69,7 @@ namespace LandOfTheConsumers.Procedural
 
             centerSegments = new List<List<Vector2Int>>();
             centerPixels = new List<Vector2Int>();
+            perpendicularDirection = Vector2.zero;
             centerPixelSet = new HashSet<Vector2Int>();
             edgePixels = new List<Vector2Int>();
             edgePixelSet = new HashSet<Vector2Int>();
@@ -216,5 +223,6 @@ namespace LandOfTheConsumers.Procedural
         {
             return $"EdgePair_{regionIdA}_{regionIdB}";
         }
+
     }
 }

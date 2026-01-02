@@ -24,10 +24,6 @@ namespace LandOfTheConsumers.Procedural
         private bool isGenerating = false;
         private Dictionary<Vector2Int, float> centerPixelHeights; // Height for each center pixel
 
-        // Temporary PerlinSettings for height calculation
-        private PerlinSettings tempSettingsA;
-        private PerlinSettings tempSettingsB;
-
         public System.Action OnGenerationComplete;
         public bool IsGenerating => isGenerating;
 
@@ -74,63 +70,42 @@ namespace LandOfTheConsumers.Procedural
             // Note: We don't need bounds for center pixels since we're just drawing a line
             // The bounds calculation is kept for potential future use
 
-            // Get presets for both regions
-            if (!regionQuadVisualizer.regionPresetMapping.ContainsKey(edgeData.regionIdA) ||
-                !regionQuadVisualizer.regionPresetMapping.ContainsKey(edgeData.regionIdB))
+            // Get terrain generators for both regions
+            if (!regionQuadVisualizer.regionTerrainGenerators.ContainsKey(edgeData.regionIdA) ||
+                !regionQuadVisualizer.regionTerrainGenerators.ContainsKey(edgeData.regionIdB))
             {
-                Debug.LogError($"[EdgePairGenerator] Region presets not found for {edgeData.GetPairName()}");
+                Debug.LogError($"[EdgePairGenerator] Terrain generators not found for {edgeData.GetPairName()}");
                 isGenerating = false;
                 OnGenerationComplete?.Invoke();
                 yield break;
             }
 
-            TerrainNoisePreset presetA = regionQuadVisualizer.regionPresetMapping[edgeData.regionIdA];
-            TerrainNoisePreset presetB = regionQuadVisualizer.regionPresetMapping[edgeData.regionIdB];
+            RegionTerrainGenerator terrainGenA = regionQuadVisualizer.regionTerrainGenerators[edgeData.regionIdA];
+            RegionTerrainGenerator terrainGenB = regionQuadVisualizer.regionTerrainGenerators[edgeData.regionIdB];
 
-            // Create temporary PerlinSettings for height calculation
-            tempSettingsA = gameObject.AddComponent<PerlinSettings>();
-            tempSettingsA.ApplyPreset(presetA);
-            tempSettingsB = gameObject.AddComponent<PerlinSettings>();
-            tempSettingsB.ApplyPreset(presetB);
-
-            // Get the actual regions to find their bounds
-            var regions = cellularVisualizer.Regions;
-            if (regions == null || edgeData.regionIdA >= regions.Count || edgeData.regionIdB >= regions.Count)
+            // Verify terrain generators have height maps
+            if (terrainGenA.HeightMap == null || terrainGenB.HeightMap == null)
             {
-                Debug.LogError($"[EdgePairGenerator] Cannot access regions {edgeData.regionIdA} or {edgeData.regionIdB}");
+                Debug.LogError($"[EdgePairGenerator] Terrain generators for {edgeData.GetPairName()} don't have height maps yet!");
                 isGenerating = false;
                 OnGenerationComplete?.Invoke();
                 yield break;
             }
 
-            CellularRegion regionA = regions[edgeData.regionIdA];
-            CellularRegion regionB = regions[edgeData.regionIdB];
+            // Get region bounds from terrain generators (they were calculated during terrain generation)
+            int regionA_minX = terrainGenA.RegionMinX;
+            int regionA_minY = terrainGenA.RegionMinY;
+            int regionB_minX = terrainGenB.RegionMinX;
+            int regionB_minY = terrainGenB.RegionMinY;
 
-            // Calculate bounds for each region (same logic as RegionTerrainGenerator)
-            int regionA_minX = int.MaxValue, regionA_minY = int.MaxValue;
-            int regionA_maxX = int.MinValue, regionA_maxY = int.MinValue;
-            foreach (var pixel in regionA.pixels)
-            {
-                regionA_minX = Mathf.Min(regionA_minX, pixel.x);
-                regionA_minY = Mathf.Min(regionA_minY, pixel.y);
-                regionA_maxX = Mathf.Max(regionA_maxX, pixel.x);
-                regionA_maxY = Mathf.Max(regionA_maxY, pixel.y);
-            }
+            // Get heightMap dimensions
+            int regionA_terrainWidth = terrainGenA.HeightMap.GetLength(0);
+            int regionA_terrainHeight = terrainGenA.HeightMap.GetLength(1);
+            int regionB_terrainWidth = terrainGenB.HeightMap.GetLength(0);
+            int regionB_terrainHeight = terrainGenB.HeightMap.GetLength(1);
 
-            int regionB_minX = int.MaxValue, regionB_minY = int.MaxValue;
-            int regionB_maxX = int.MinValue, regionB_maxY = int.MinValue;
-            foreach (var pixel in regionB.pixels)
-            {
-                regionB_minX = Mathf.Min(regionB_minX, pixel.x);
-                regionB_minY = Mathf.Min(regionB_minY, pixel.y);
-                regionB_maxX = Mathf.Max(regionB_maxX, pixel.x);
-                regionB_maxY = Mathf.Max(regionB_maxY, pixel.y);
-            }
-
-            int regionA_terrainWidth = (regionA_maxX - regionA_minX + 1) * pixelsPerUnit;
-            int regionA_terrainHeight = (regionA_maxY - regionA_minY + 1) * pixelsPerUnit;
-            int regionB_terrainWidth = (regionB_maxX - regionB_minX + 1) * pixelsPerUnit;
-            int regionB_terrainHeight = (regionB_maxY - regionB_minY + 1) * pixelsPerUnit;
+            // Calculate and store perpendicular directions for all center pixels
+            CalculatePerpendicularDirections();
 
             // Calculate heights for center pixels - average of both regions' heights
             centerPixelHeights = new Dictionary<Vector2Int, float>();
@@ -143,7 +118,7 @@ namespace LandOfTheConsumers.Procedural
                 bool isInFirstFive = i < 5;
                 bool isInLastFive = i >= edgeData.centerPixels.Count - 5;
 
-                // Calculate height from region A's perspective
+                // Sample height from region A's heightMap
                 float heightA = 0f;
                 bool hasValidHeightA = false;
                 int terrainA_X = (centerPixel.x - regionA_minX) * pixelsPerUnit + pixelsPerUnit / 2;
@@ -151,14 +126,14 @@ namespace LandOfTheConsumers.Procedural
                 if (terrainA_X >= 0 && terrainA_X < regionA_terrainWidth &&
                     terrainA_Y >= 0 && terrainA_Y < regionA_terrainHeight)
                 {
-                    heightA = CalculateHeightAtTerrain(terrainA_X, terrainA_Y, regionA_terrainWidth, regionA_terrainHeight, tempSettingsA);
+                    heightA = terrainGenA.HeightMap[terrainA_X, terrainA_Y];
                     hasValidHeightA = true;
                 }
 
                 // If heightA is invalid and in first 5, search forward
                 if (!hasValidHeightA && isInFirstFive)
                 {
-                    heightA = FindValidHeightForward(i, regionA_minX, regionA_minY, regionA_terrainWidth, regionA_terrainHeight, tempSettingsA, out hasValidHeightA);
+                    heightA = FindValidHeightForward(i, regionA_minX, regionA_minY, regionA_terrainWidth, regionA_terrainHeight, terrainGenA.HeightMap, out hasValidHeightA);
                     if (hasValidHeightA)
                     {
                         Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Pixel {i} at {centerPixel} - Using forward heightA");
@@ -167,14 +142,14 @@ namespace LandOfTheConsumers.Procedural
                 // If heightA is invalid and in last 5, search backward
                 else if (!hasValidHeightA && isInLastFive)
                 {
-                    heightA = FindValidHeightBackward(i, regionA_minX, regionA_minY, regionA_terrainWidth, regionA_terrainHeight, tempSettingsA, out hasValidHeightA);
+                    heightA = FindValidHeightBackward(i, regionA_minX, regionA_minY, regionA_terrainWidth, regionA_terrainHeight, terrainGenA.HeightMap, out hasValidHeightA);
                     if (hasValidHeightA)
                     {
                         Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Pixel {i} at {centerPixel} - Using backward heightA");
                     }
                 }
 
-                // Calculate height from region B's perspective
+                // Sample height from region B's heightMap
                 float heightB = 0f;
                 bool hasValidHeightB = false;
                 int terrainB_X = (centerPixel.x - regionB_minX) * pixelsPerUnit + pixelsPerUnit / 2;
@@ -182,14 +157,14 @@ namespace LandOfTheConsumers.Procedural
                 if (terrainB_X >= 0 && terrainB_X < regionB_terrainWidth &&
                     terrainB_Y >= 0 && terrainB_Y < regionB_terrainHeight)
                 {
-                    heightB = CalculateHeightAtTerrain(terrainB_X, terrainB_Y, regionB_terrainWidth, regionB_terrainHeight, tempSettingsB);
+                    heightB = terrainGenB.HeightMap[terrainB_X, terrainB_Y];
                     hasValidHeightB = true;
                 }
 
                 // If heightB is invalid and in first 5, search forward
                 if (!hasValidHeightB && isInFirstFive)
                 {
-                    heightB = FindValidHeightForward(i, regionB_minX, regionB_minY, regionB_terrainWidth, regionB_terrainHeight, tempSettingsB, out hasValidHeightB);
+                    heightB = FindValidHeightForward(i, regionB_minX, regionB_minY, regionB_terrainWidth, regionB_terrainHeight, terrainGenB.HeightMap, out hasValidHeightB);
                     if (hasValidHeightB)
                     {
                         Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Pixel {i} at {centerPixel} - Using forward heightB");
@@ -198,7 +173,7 @@ namespace LandOfTheConsumers.Procedural
                 // If heightB is invalid and in last 5, search backward
                 else if (!hasValidHeightB && isInLastFive)
                 {
-                    heightB = FindValidHeightBackward(i, regionB_minX, regionB_minY, regionB_terrainWidth, regionB_terrainHeight, tempSettingsB, out hasValidHeightB);
+                    heightB = FindValidHeightBackward(i, regionB_minX, regionB_minY, regionB_terrainWidth, regionB_terrainHeight, terrainGenB.HeightMap, out hasValidHeightB);
                     if (hasValidHeightB)
                     {
                         Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Pixel {i} at {centerPixel} - Using backward heightB");
@@ -277,14 +252,6 @@ namespace LandOfTheConsumers.Procedural
             lineRenderer.positionCount = smoothedLinePoints.Length;
             lineRenderer.SetPositions(smoothedLinePoints);
 
-            // Create 2 child objects with exact copies of the smoothed line data
-            Vector3[] leftLinePoints;
-            Vector3[] rightLinePoints;
-            CreateChildEdgeLines(smoothedLinePoints, out leftLinePoints, out rightLinePoints);
-
-            // Create mesh from the 3 lines
-            CreateEdgeMesh(smoothedLinePoints, leftLinePoints, rightLinePoints);
-
             isGenerating = false;
             Debug.Log($"[EdgePairGenerator] Completed {edgeData.GetPairName()} with {smoothedLinePoints.Length} line points (from {edgeData.centerPixels.Count} center pixels)");
             OnGenerationComplete?.Invoke();
@@ -323,201 +290,9 @@ namespace LandOfTheConsumers.Procedural
         }
 
         /// <summary>
-        /// Creates 2 child objects with exact copies of the parent line, offset perpendicular
-        /// Left (red) at -0.5 units, Right (blue) at +0.5 units
-        /// </summary>
-        private void CreateChildEdgeLines(Vector3[] linePoints, out Vector3[] leftLinePoints, out Vector3[] rightLinePoints)
-        {
-            // Calculate perpendicular offsets
-            leftLinePoints = CalculatePerpendicularOffset(linePoints, -0.5f);
-            rightLinePoints = CalculatePerpendicularOffset(linePoints, 0.5f);
-
-            // Create left child (red) - offset to left
-            GameObject leftChild = new GameObject("EdgeLine_Left");
-            leftChild.transform.SetParent(transform);
-            leftChild.transform.localPosition = Vector3.zero;
-            leftChild.transform.localRotation = Quaternion.identity;
-            leftChild.transform.localScale = Vector3.one;
-
-            LineRenderer leftLineRenderer = leftChild.AddComponent<LineRenderer>();
-            leftLineRenderer.material = new Material(Shader.Find("Sprites/Default"));
-            leftLineRenderer.startColor = Color.red;
-            leftLineRenderer.endColor = Color.red;
-            leftLineRenderer.startWidth = 0.1f;
-            leftLineRenderer.endWidth = 0.1f;
-            leftLineRenderer.positionCount = leftLinePoints.Length;
-            leftLineRenderer.SetPositions(leftLinePoints);
-
-            // Create right child (blue) - offset to right
-            GameObject rightChild = new GameObject("EdgeLine_Right");
-            rightChild.transform.SetParent(transform);
-            rightChild.transform.localPosition = Vector3.zero;
-            rightChild.transform.localRotation = Quaternion.identity;
-            rightChild.transform.localScale = Vector3.one;
-
-            LineRenderer rightLineRenderer = rightChild.AddComponent<LineRenderer>();
-            rightLineRenderer.material = new Material(Shader.Find("Sprites/Default"));
-            rightLineRenderer.startColor = Color.blue;
-            rightLineRenderer.endColor = Color.blue;
-            rightLineRenderer.startWidth = 0.1f;
-            rightLineRenderer.endWidth = 0.1f;
-            rightLineRenderer.positionCount = rightLinePoints.Length;
-            rightLineRenderer.SetPositions(rightLinePoints);
-
-            Debug.Log($"[EdgePairGenerator] Created 2 offset child edge lines for {edgeData.GetPairName()}");
-        }
-
-        /// <summary>
-        /// Creates a mesh from the 3 lines (center, left, right)
-        /// </summary>
-        private void CreateEdgeMesh(Vector3[] centerPoints, Vector3[] leftPoints, Vector3[] rightPoints)
-        {
-            if (centerPoints.Length < 2 || leftPoints.Length != centerPoints.Length || rightPoints.Length != centerPoints.Length)
-            {
-                Debug.LogWarning($"[EdgePairGenerator] Cannot create mesh - line lengths don't match or too short");
-                return;
-            }
-
-            List<Vector3> vertices = new List<Vector3>();
-            List<int> triangles = new List<int>();
-
-            // Add all vertices from all three lines (convert from world to local space)
-            // We'll interleave them: for each point index, add left, center, right
-            for (int i = 0; i < centerPoints.Length; i++)
-            {
-                // Convert world space positions to local space relative to this GameObject
-                vertices.Add(transform.InverseTransformPoint(leftPoints[i]));   // Index: i * 3 + 0
-                vertices.Add(transform.InverseTransformPoint(centerPoints[i])); // Index: i * 3 + 1
-                vertices.Add(transform.InverseTransformPoint(rightPoints[i]));  // Index: i * 3 + 2
-            }
-
-            // Create triangles connecting the strips
-            for (int i = 0; i < centerPoints.Length - 1; i++)
-            {
-                int baseIndex = i * 3;
-                int nextBaseIndex = (i + 1) * 3;
-
-                // Left strip (between left and center lines)
-                // Triangle 1: left[i], center[i], left[i+1]
-                triangles.Add(baseIndex + 0);      // left[i]
-                triangles.Add(baseIndex + 1);      // center[i]
-                triangles.Add(nextBaseIndex + 0);  // left[i+1]
-
-                // Triangle 2: center[i], center[i+1], left[i+1]
-                triangles.Add(baseIndex + 1);      // center[i]
-                triangles.Add(nextBaseIndex + 1);  // center[i+1]
-                triangles.Add(nextBaseIndex + 0);  // left[i+1]
-
-                // Right strip (between center and right lines)
-                // Triangle 1: center[i], right[i], center[i+1]
-                triangles.Add(baseIndex + 1);      // center[i]
-                triangles.Add(baseIndex + 2);      // right[i]
-                triangles.Add(nextBaseIndex + 1);  // center[i+1]
-
-                // Triangle 2: right[i], right[i+1], center[i+1]
-                triangles.Add(baseIndex + 2);      // right[i]
-                triangles.Add(nextBaseIndex + 2);  // right[i+1]
-                triangles.Add(nextBaseIndex + 1);  // center[i+1]
-            }
-
-            // Create mesh
-            Mesh edgeMesh = new Mesh();
-            edgeMesh.name = $"{edgeData.GetPairName()}_Mesh";
-            edgeMesh.vertices = vertices.ToArray();
-            edgeMesh.triangles = triangles.ToArray();
-            edgeMesh.RecalculateNormals();
-            edgeMesh.RecalculateBounds();
-
-            // Create GameObject for the mesh
-            GameObject meshObject = new GameObject("EdgeMesh");
-            meshObject.transform.SetParent(transform);
-            meshObject.transform.localPosition = Vector3.zero;
-            meshObject.transform.localRotation = Quaternion.identity;
-            meshObject.transform.localScale = Vector3.one;
-
-            MeshFilter meshFilter = meshObject.AddComponent<MeshFilter>();
-            meshFilter.mesh = edgeMesh;
-
-            MeshRenderer meshRenderer = meshObject.AddComponent<MeshRenderer>();
-            meshRenderer.material = edgeMaterial != null ? edgeMaterial : new Material(Shader.Find("Standard"));
-
-            Debug.Log($"[EdgePairGenerator] Created mesh with {vertices.Count} vertices and {triangles.Count / 3} triangles for {edgeData.GetPairName()}");
-        }
-
-        /// <summary>
-        /// Calculates perpendicular offset positions for a line
-        /// </summary>
-        private Vector3[] CalculatePerpendicularOffset(Vector3[] linePoints, float offsetDistance)
-        {
-            Vector3[] offsetPoints = new Vector3[linePoints.Length];
-
-            for (int i = 0; i < linePoints.Length; i++)
-            {
-                Vector3 perpendicular = Vector3.zero;
-
-                if (i == 0 && linePoints.Length > 1)
-                {
-                    // First point: use direction to next point
-                    Vector3 forward = linePoints[i + 1] - linePoints[i];
-                    perpendicular = GetPerpendicularXZ(forward);
-                }
-                else if (i == linePoints.Length - 1 && linePoints.Length > 1)
-                {
-                    // Last point: use direction from previous point
-                    Vector3 forward = linePoints[i] - linePoints[i - 1];
-                    perpendicular = GetPerpendicularXZ(forward);
-                }
-                else if (linePoints.Length > 1)
-                {
-                    // Middle points: average perpendicular of both segments
-                    Vector3 forwardPrev = linePoints[i] - linePoints[i - 1];
-                    Vector3 forwardNext = linePoints[i + 1] - linePoints[i];
-                    Vector3 perp1 = GetPerpendicularXZ(forwardPrev);
-                    Vector3 perp2 = GetPerpendicularXZ(forwardNext);
-                    perpendicular = (perp1 + perp2).normalized;
-                }
-
-                offsetPoints[i] = linePoints[i] + perpendicular * offsetDistance;
-            }
-
-            return offsetPoints;
-        }
-
-        /// <summary>
-        /// Gets the perpendicular vector in the XZ plane (rotated 90 degrees left)
-        /// </summary>
-        private Vector3 GetPerpendicularXZ(Vector3 direction)
-        {
-            // Perpendicular in XZ plane (rotate 90 degrees counter-clockwise around Y axis)
-            // For direction (x, y, z), perpendicular is (-z, y, x)
-            Vector3 perpendicular = new Vector3(-direction.z, 0, direction.x);
-
-            // Normalize only the XZ components
-            float length = Mathf.Sqrt(perpendicular.x * perpendicular.x + perpendicular.z * perpendicular.z);
-            if (length > 0.0001f)
-            {
-                perpendicular.x /= length;
-                perpendicular.z /= length;
-            }
-
-            return perpendicular;
-        }
-
-        private float CalculateHeightAtTerrain(int x, int y, int width, int height, PerlinSettings settings)
-        {
-            float xCoord = (float)x / width * settings.scale * settings.xScale
-                           + settings.offSetX / (settings.scale * settings.xScale) / 2f;
-            float yCoord = (float)y / height * settings.scale * settings.zScale
-                           + settings.offSetY / (settings.scale * settings.zScale) / 2f;
-
-            float sample = Mathf.PerlinNoise(xCoord, yCoord);
-            return sample * settings.heightMultiplier;
-        }
-
-        /// <summary>
         /// Searches forward through pixels to find valid height data for a region
         /// </summary>
-        private float FindValidHeightForward(int startIndex, int regionMinX, int regionMinY, int terrainWidth, int terrainHeight, PerlinSettings settings, out bool foundValid)
+        private float FindValidHeightForward(int startIndex, int regionMinX, int regionMinY, int terrainWidth, int terrainHeight, float[,] heightMap, out bool foundValid)
         {
             foundValid = false;
 
@@ -532,7 +307,7 @@ namespace LandOfTheConsumers.Procedural
                     terrainY >= 0 && terrainY < terrainHeight)
                 {
                     foundValid = true;
-                    return CalculateHeightAtTerrain(terrainX, terrainY, terrainWidth, terrainHeight, settings);
+                    return heightMap[terrainX, terrainY];
                 }
             }
 
@@ -543,7 +318,7 @@ namespace LandOfTheConsumers.Procedural
         /// <summary>
         /// Searches backward through pixels to find valid height data for a region
         /// </summary>
-        private float FindValidHeightBackward(int startIndex, int regionMinX, int regionMinY, int terrainWidth, int terrainHeight, PerlinSettings settings, out bool foundValid)
+        private float FindValidHeightBackward(int startIndex, int regionMinX, int regionMinY, int terrainWidth, int terrainHeight, float[,] heightMap, out bool foundValid)
         {
             foundValid = false;
 
@@ -558,7 +333,7 @@ namespace LandOfTheConsumers.Procedural
                     terrainY >= 0 && terrainY < terrainHeight)
                 {
                     foundValid = true;
-                    return CalculateHeightAtTerrain(terrainX, terrainY, terrainWidth, terrainHeight, settings);
+                    return heightMap[terrainX, terrainY];
                 }
             }
 
@@ -657,6 +432,57 @@ namespace LandOfTheConsumers.Procedural
             centerPixelHeights = smoothedHeights;
 
             Debug.Log($"[EdgePairGenerator] Applied smoothing to {smoothedHeights.Count} edge heights");
+        }
+
+        /// <summary>
+        /// Calculates a single perpendicular direction vector (1 unit length) for this edge
+        /// Uses the overall direction from start to end of the edge
+        /// </summary>
+        private void CalculatePerpendicularDirections()
+        {
+            if (edgeData.centerPixels.Count == 0)
+            {
+                Debug.LogWarning($"[EdgePairGenerator] No center pixels to calculate perpendicular for {edgeData.GetPairName()}");
+                edgeData.perpendicularDirection = Vector2.zero;
+                return;
+            }
+
+            if (edgeData.centerPixels.Count == 1)
+            {
+                // Only one pixel - no meaningful direction
+                edgeData.perpendicularDirection = Vector2.zero;
+                return;
+            }
+
+            // Calculate overall edge direction from start to end
+            Vector2Int startPixel = edgeData.centerPixels[0];
+            Vector2Int endPixel = edgeData.centerPixels[edgeData.centerPixels.Count - 1];
+
+            Vector2 edgeDirection = new Vector2(endPixel.x - startPixel.x, endPixel.y - startPixel.y);
+
+            // Get perpendicular (90 degrees counter-clockwise)
+            edgeData.perpendicularDirection = GetPerpendicularXZ2D(edgeDirection);
+
+            Debug.Log($"[EdgePairGenerator] Calculated perpendicular direction {edgeData.perpendicularDirection} for {edgeData.GetPairName()}");
+        }
+
+        /// <summary>
+        /// Gets the perpendicular vector in 2D (rotated 90 degrees left)
+        /// For direction (x, y), perpendicular is (-y, x)
+        /// </summary>
+        private Vector2 GetPerpendicularXZ2D(Vector2 direction)
+        {
+            // Perpendicular in 2D (rotate 90 degrees counter-clockwise)
+            Vector2 perpendicular = new Vector2(-direction.y, direction.x);
+
+            // Normalize
+            float length = perpendicular.magnitude;
+            if (length > 0.0001f)
+            {
+                perpendicular /= length;
+            }
+
+            return perpendicular;
         }
     }
 }

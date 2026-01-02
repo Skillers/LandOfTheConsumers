@@ -37,11 +37,22 @@ namespace LandOfTheConsumers.Procedural
         // Target GameObject to generate terrain chunks into (typically LOD0)
         private GameObject targetContainer;
 
+        // Bounds of the region (min pixel coordinates)
+        private int regionMinX;
+        private int regionMinY;
+
         // Event called when terrain generation is complete
         public System.Action OnGenerationComplete;
 
         // Public property to check if currently generating
         public bool IsGenerating => isGenerating;
+
+        // Public accessor for heightMap
+        public float[,] HeightMap => heightMap;
+
+        // Public accessor for region bounds (needed to convert pixel coords to heightmap coords)
+        public int RegionMinX => regionMinX;
+        public int RegionMinY => regionMinY;
 
         public void GenerateTerrain(CellularRegion region, CellularNoiseVisualizer cellularVisualizer, GameObject targetParent)
         {
@@ -108,6 +119,10 @@ namespace LandOfTheConsumers.Procedural
             }
 
             Debug.Log($"[RegionTerrainGenerator] Region {regionIndex} - Pixel bounds: ({minX}, {minY}) to ({maxX}, {maxY})");
+
+            // Store region bounds for later height sampling
+            regionMinX = minX;
+            regionMinY = minY;
 
             // Generate height map for the entire region bounds
             // Add 1 to account for the extra vertex at the end (vertices go from 0 to pixelsPerUnit inclusive)

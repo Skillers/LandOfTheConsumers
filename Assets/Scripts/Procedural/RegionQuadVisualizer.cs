@@ -24,6 +24,9 @@ namespace LandOfTheConsumers.Procedural
         [Tooltip("Stores which preset is assigned to each region (Region Index -> Preset)")]
         public Dictionary<int, TerrainNoisePreset> regionPresetMapping = new Dictionary<int, TerrainNoisePreset>();
 
+        [Tooltip("Stores terrain generators for each region (Region Index -> LOD0 TerrainGenerator)")]
+        public Dictionary<int, RegionTerrainGenerator> regionTerrainGenerators = new Dictionary<int, RegionTerrainGenerator>();
+
         [Header("LOD Settings")]
         [Tooltip("Quad size for LOD 0 (highest detail) - 1/4 quads per level")]
         private float lod0QuadSize = 0.5f;
@@ -113,6 +116,7 @@ namespace LandOfTheConsumers.Procedural
 
             // Clear existing preset mapping and queue
             regionPresetMapping.Clear();
+            regionTerrainGenerators.Clear();
             regionQueue.Clear();
 
             // Get preset list from referenced PerlinSettings
@@ -253,6 +257,9 @@ namespace LandOfTheConsumers.Procedural
                     data.terrainGeneratorLOD0.assignedPreset = data.selectedPreset;
                     data.terrainGeneratorLOD0.pixelsPerUnit = 2;
                     data.terrainGeneratorLOD0.pixelSamplingStep = 1;
+
+                    // Store LOD0 terrain generator for public access
+                    regionTerrainGenerators[data.regionIndex] = data.terrainGeneratorLOD0;
 
                     // LOD1: 1 pixel per unit
                     data.terrainGeneratorLOD1 = data.regionObject.AddComponent<RegionTerrainGenerator>();
