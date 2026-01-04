@@ -8,7 +8,7 @@ namespace LandOfTheConsumers.Procedural
     /// </summary>
     public class EdgeSpreader : MonoBehaviour
     {
-        [HideInInspector] public EdgeSpineData edgeData;
+        private EdgeSpineData edgeData;
         private List<Vector3> edgePoints3D;
         private List<Vector3> FullEdgePoints;
         private Vector3 perpendicular;
@@ -155,10 +155,10 @@ namespace LandOfTheConsumers.Procedural
             // Assign mesh
             meshFilter.mesh = edgeMesh;
 
-            // Create and assign white material
-            Material whiteMaterial = new Material(Shader.Find("Standard"));
-            whiteMaterial.color = Color.white;
-            meshRenderer.material = whiteMaterial;
+            // Create and assign orange material
+            Material orangeMaterial = new Material(Shader.Find("Standard"));
+            orangeMaterial.color = new Color(1f, 0.5f, 0f); // Orange color
+            meshRenderer.material = orangeMaterial;
 
             Debug.Log($"[EdgeSpreader] Generated edge mesh with {FullEdgePoints.Count} vertices and {triangles.Count / 3} triangles");
         }

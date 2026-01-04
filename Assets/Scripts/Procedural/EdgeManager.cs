@@ -273,9 +273,8 @@ namespace LandOfTheConsumers.Procedural
                 generator.regionQuadVisualizer = regionQuadVisualizer;
                 generator.edgeMaterial = edgeMaterial;
 
-                // Add EdgeSpreader component
+                // Add EdgeSpreader component (gets edgeData from EdgePairGenerator)
                 EdgeSpreader spreader = edgePairObject.AddComponent<EdgeSpreader>();
-                spreader.edgeData = edgeData;
 
                 // Add to queue
                 edgeQueue.Enqueue(new EdgeGenerationTask
