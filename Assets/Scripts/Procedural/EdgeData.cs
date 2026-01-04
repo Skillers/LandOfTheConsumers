@@ -4,56 +4,32 @@ using UnityEngine;
 namespace LandOfTheConsumers.Procedural
 {
     /// <summary>
-    /// Data structure for storing information about an edge between two regions.
-    /// Contains pixel coordinates for the edge and region pair IDs.
+    /// Data structure for storing information about an edge spine between two regions.
+    /// Contains pixel coordinates for the center line and region pair IDs.
     /// </summary>
     [System.Serializable]
-    public class EdgeData
+    public class EdgeSpineData
     {
-        /// <summary>
-        /// First region ID (always the lower ID)
-        /// </summary>
-        public int regionIdA;
+        // === REGION IDENTIFICATION ===
+        public int regionIdA;  // First region ID (always the lower ID)
+        public int regionIdB;  // Second region ID (always the higher ID)
 
-        /// <summary>
-        /// Second region ID (always the higher ID)
-        /// </summary>
-        public int regionIdB;
-
-        /// <summary>
-        /// List of line segments that make up this edge boundary
-        /// Each segment is a list of pixels from one corner to another
-        /// </summary>
+        // === CENTER LINE DATA (1-pixel wide spine of the edge) ===
+        // Used during construction - can be discarded after BuildOrderedCenterLine()
         public List<List<Vector2Int>> centerSegments;
 
-        /// <summary>
-        /// List of center line pixels (1-pixel wide, ordered to form continuous path)
-        /// These are used to calculate heights for the line
-        /// </summary>
+        // The final ordered path along the center of the edge
         public List<Vector2Int> centerPixels;
+        public HashSet<Vector2Int> centerPixelSet;  // For fast lookup: "Is this pixel on the center line?"
 
-        /// <summary>
-        /// Perpendicular direction vector (1 unit length) for this edge
-        /// Points perpendicular to the edge direction (90 degrees counter-clockwise)
-        /// </summary>
+        // Height value for each center pixel (averaged from both adjacent regions)
+        public Dictionary<Vector2Int, float> pixelHeights;
+
+        // === EDGE ORIENTATION ===
+        // Perpendicular direction (unit vector, 90° counter-clockwise from edge direction)
         public Vector2 perpendicularDirection;
 
-        /// <summary>
-        /// HashSet for O(1) lookup of center pixel membership
-        /// </summary>
-        public HashSet<Vector2Int> centerPixelSet;
-
-        /// <summary>
-        /// List of all pixel coordinates belonging to this edge (3-pixel width)
-        /// </summary>
-        public List<Vector2Int> edgePixels;
-
-        /// <summary>
-        /// HashSet for O(1) lookup of pixel membership
-        /// </summary>
-        public HashSet<Vector2Int> edgePixelSet;
-
-        public EdgeData(int regionA, int regionB)
+        public EdgeSpineData(int regionA, int regionB)
         {
             // Always store smaller ID first for consistent naming
             if (regionA < regionB)
@@ -71,8 +47,7 @@ namespace LandOfTheConsumers.Procedural
             centerPixels = new List<Vector2Int>();
             perpendicularDirection = Vector2.zero;
             centerPixelSet = new HashSet<Vector2Int>();
-            edgePixels = new List<Vector2Int>();
-            edgePixelSet = new HashSet<Vector2Int>();
+            pixelHeights = new Dictionary<Vector2Int, float>();
         }
 
         /// <summary>
@@ -204,17 +179,6 @@ namespace LandOfTheConsumers.Procedural
             }
         }
 
-        /// <summary>
-        /// Add a pixel to this edge (3-pixel width, avoids duplicates)
-        /// </summary>
-        public void AddPixel(Vector2Int pixel)
-        {
-            if (!edgePixelSet.Contains(pixel))
-            {
-                edgePixels.Add(pixel);
-                edgePixelSet.Add(pixel);
-            }
-        }
 
         /// <summary>
         /// Get the formatted name for this edge pair GameObject

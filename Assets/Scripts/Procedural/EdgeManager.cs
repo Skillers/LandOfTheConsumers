@@ -29,14 +29,14 @@ namespace LandOfTheConsumers.Procedural
         [SerializeField] private bool autoGenerateInPlayMode = true;
 
         // Internal data
-        private List<EdgeData> allEdges = new List<EdgeData>();
+        private List<EdgeSpineData> allEdges = new List<EdgeSpineData>();
         private Queue<EdgeGenerationTask> edgeQueue = new Queue<EdgeGenerationTask>();
         private bool isProcessingQueue = false;
         private bool cancelRequested = false;
 
         private class EdgeGenerationTask
         {
-            public EdgeData edgeData;
+            public EdgeSpineData edgeData;
             public GameObject edgePairObject;
             public EdgePairGenerator generator;
         }
@@ -106,7 +106,7 @@ namespace LandOfTheConsumers.Procedural
             Debug.Log($"[EdgeManager] Processing {cornerEdges.Count} corner edges from {corners.Count} corners");
 
             // Process each corner edge to extract region pairs
-            Dictionary<(int, int), EdgeData> edgePairMap = new Dictionary<(int, int), EdgeData>();
+            Dictionary<(int, int), EdgeSpineData> edgePairMap = new Dictionary<(int, int), EdgeSpineData>();
 
             foreach (var cornerEdge in cornerEdges)
             {
@@ -128,11 +128,11 @@ namespace LandOfTheConsumers.Procedural
                     int regionA = Mathf.Min(sharedRegions[0], sharedRegions[1]);
                     int regionB = Mathf.Max(sharedRegions[0], sharedRegions[1]);
 
-                    // Create or get EdgeData for this pair
+                    // Create or get EdgeSpineData for this pair
                     var key = (regionA, regionB);
                     if (!edgePairMap.ContainsKey(key))
                     {
-                        EdgeData edgeData = new EdgeData(regionA, regionB);
+                        EdgeSpineData edgeData = new EdgeSpineData(regionA, regionB);
                         edgePairMap[key] = edgeData;
                         allEdges.Add(edgeData);
                     }
@@ -164,7 +164,7 @@ namespace LandOfTheConsumers.Procedural
         /// <summary>
         /// Rasterizes an edge segment from corner1 to corner2 and adds it as a segment to edgeData
         /// </summary>
-        private void RasterizeEdgeSegment(EdgeData edgeData, Vector2 corner1World, Vector2 corner2World)
+        private void RasterizeEdgeSegment(EdgeSpineData edgeData, Vector2 corner1World, Vector2 corner2World)
         {
             // Convert from world coordinates to pixel coordinates
             int pixelsPerUnit = cellularVisualizer.pixelsPerUnit;
@@ -183,11 +183,8 @@ namespace LandOfTheConsumers.Procedural
             // 3. Expand to 3-pixel width
             HashSet<Vector2Int> thickLine = ExpandTo3PixelWidth(centerLine);
 
-            // 4. Add all pixels to edge data (for potential future use)
-            foreach (var pixel in thickLine)
-            {
-                edgeData.AddPixel(pixel);
-            }
+            // Note: We no longer store the full 3-pixel wide edge data
+            // EdgeSpineData now only contains the center line pixels
         }
 
         /// <summary>
@@ -308,7 +305,7 @@ namespace LandOfTheConsumers.Procedural
                 EdgeGenerationTask task = edgeQueue.Dequeue();
                 tasksProcessed++;
 
-                Debug.Log($"[EdgeManager] Generating edge {task.edgeData.GetPairName()} ({tasksProcessed}/{totalTasks}) with {task.edgeData.edgePixels.Count} pixels");
+                Debug.Log($"[EdgeManager] Generating edge {task.edgeData.GetPairName()} ({tasksProcessed}/{totalTasks}) with {task.edgeData.centerPixels.Count} pixels");
 
                 bool generationComplete = false;
                 task.generator.OnGenerationComplete = () => { generationComplete = true; };
@@ -386,6 +383,6 @@ namespace LandOfTheConsumers.Procedural
         /// <summary>
         /// Public accessor for all edge data (for debugging/visualization)
         /// </summary>
-        public List<EdgeData> AllEdges => allEdges;
+        public List<EdgeSpineData> AllEdges => allEdges;
     }
 }

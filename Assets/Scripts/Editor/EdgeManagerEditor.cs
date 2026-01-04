@@ -56,15 +56,15 @@ namespace LandOfTheConsumers.Procedural
                 EditorGUILayout.Space(10);
                 EditorGUILayout.LabelField("Edge Statistics", EditorStyles.boldLabel);
 
-                int totalPixels = 0;
+                int totalCenterPixels = 0;
                 foreach (var edge in edgeManager.AllEdges)
                 {
-                    totalPixels += edge.edgePixels.Count;
+                    totalCenterPixels += edge.centerPixels.Count;
                 }
 
                 EditorGUILayout.HelpBox(
                     $"Edge Pairs: {edgeManager.AllEdges.Count}\n" +
-                    $"Total Edge Pixels: {totalPixels}\n" +
+                    $"Total Center Pixels: {totalCenterPixels}\n" +
                     $"Child Objects: {edgeManager.transform.childCount}",
                     MessageType.Info
                 );

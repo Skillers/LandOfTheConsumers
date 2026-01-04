@@ -13,16 +13,13 @@ namespace LandOfTheConsumers.Procedural
     /// </summary>
     public class EdgePairGenerator : MonoBehaviour
     {
-        [HideInInspector] public EdgeData edgeData;
+        [HideInInspector] public EdgeSpineData edgeData;
         [HideInInspector] public CellularNoiseVisualizer cellularVisualizer;
         [HideInInspector] public RegionQuadVisualizer regionQuadVisualizer;
         [HideInInspector] public Material edgeMaterial;
 
-        private const int pixelsPerUnit = 2;  // LOD0 only
-
         private LineRenderer lineRenderer;
         private bool isGenerating = false;
-        private Dictionary<Vector2Int, float> centerPixelHeights; // Height for each center pixel
 
         public System.Action OnGenerationComplete;
         public bool IsGenerating => isGenerating;
@@ -65,7 +62,7 @@ namespace LandOfTheConsumers.Procedural
             float worldHeight = worldSizeInBiomes.y * biomeSize;
             float halfWidth = worldWidth * 0.5f;
             float halfHeight = worldHeight * 0.5f;
-            int cellularPixelsPerUnit = cellularVisualizer.pixelsPerUnit;
+            int pixelsPerUnit = cellularVisualizer.pixelsPerUnit;
 
             // Note: We don't need bounds for center pixels since we're just drawing a line
             // The bounds calculation is kept for potential future use
@@ -108,7 +105,7 @@ namespace LandOfTheConsumers.Procedural
             CalculatePerpendicularDirections();
 
             // Calculate heights for center pixels - average of both regions' heights
-            centerPixelHeights = new Dictionary<Vector2Int, float>();
+            edgeData.pixelHeights.Clear();
 
             Debug.Log($"[EdgePairGenerator] Calculating heights for {edgeData.centerPixels.Count} center pixels");
 
@@ -133,7 +130,7 @@ namespace LandOfTheConsumers.Procedural
                 // If heightA is invalid and in first 5, search forward
                 if (!hasValidHeightA && isInFirstFive)
                 {
-                    heightA = FindValidHeightForward(i, regionA_minX, regionA_minY, regionA_terrainWidth, regionA_terrainHeight, terrainGenA.HeightMap, out hasValidHeightA);
+                    heightA = FindValidHeightForward(i, regionA_minX, regionA_minY, regionA_terrainWidth, regionA_terrainHeight, terrainGenA.HeightMap, pixelsPerUnit, out hasValidHeightA);
                     if (hasValidHeightA)
                     {
                         Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Pixel {i} at {centerPixel} - Using forward heightA");
@@ -142,7 +139,7 @@ namespace LandOfTheConsumers.Procedural
                 // If heightA is invalid and in last 5, search backward
                 else if (!hasValidHeightA && isInLastFive)
                 {
-                    heightA = FindValidHeightBackward(i, regionA_minX, regionA_minY, regionA_terrainWidth, regionA_terrainHeight, terrainGenA.HeightMap, out hasValidHeightA);
+                    heightA = FindValidHeightBackward(i, regionA_minX, regionA_minY, regionA_terrainWidth, regionA_terrainHeight, terrainGenA.HeightMap, pixelsPerUnit, out hasValidHeightA);
                     if (hasValidHeightA)
                     {
                         Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Pixel {i} at {centerPixel} - Using backward heightA");
@@ -164,7 +161,7 @@ namespace LandOfTheConsumers.Procedural
                 // If heightB is invalid and in first 5, search forward
                 if (!hasValidHeightB && isInFirstFive)
                 {
-                    heightB = FindValidHeightForward(i, regionB_minX, regionB_minY, regionB_terrainWidth, regionB_terrainHeight, terrainGenB.HeightMap, out hasValidHeightB);
+                    heightB = FindValidHeightForward(i, regionB_minX, regionB_minY, regionB_terrainWidth, regionB_terrainHeight, terrainGenB.HeightMap, pixelsPerUnit, out hasValidHeightB);
                     if (hasValidHeightB)
                     {
                         Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Pixel {i} at {centerPixel} - Using forward heightB");
@@ -173,7 +170,7 @@ namespace LandOfTheConsumers.Procedural
                 // If heightB is invalid and in last 5, search backward
                 else if (!hasValidHeightB && isInLastFive)
                 {
-                    heightB = FindValidHeightBackward(i, regionB_minX, regionB_minY, regionB_terrainWidth, regionB_terrainHeight, terrainGenB.HeightMap, out hasValidHeightB);
+                    heightB = FindValidHeightBackward(i, regionB_minX, regionB_minY, regionB_terrainWidth, regionB_terrainHeight, terrainGenB.HeightMap, pixelsPerUnit, out hasValidHeightB);
                     if (hasValidHeightB)
                     {
                         Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Pixel {i} at {centerPixel} - Using backward heightB");
@@ -183,7 +180,7 @@ namespace LandOfTheConsumers.Procedural
                 // Average the two heights and store for this center pixel
                 // If one or both heights are still invalid (0), the average will reflect that
                 float averagedHeight = (heightA + heightB) * 0.5f;
-                centerPixelHeights[centerPixel] = averagedHeight;
+                edgeData.pixelHeights[centerPixel] = averagedHeight;
             }
 
             // Validate critical pixels (first 3 and last 3) have proper height data
@@ -210,11 +207,11 @@ namespace LandOfTheConsumers.Procedural
                 Vector2Int centerPixel = edgeData.centerPixels[i];
 
                 // Get the smoothed height for this pixel
-                float height = centerPixelHeights.ContainsKey(centerPixel) ? centerPixelHeights[centerPixel] : 0f;
+                float height = edgeData.pixelHeights.ContainsKey(centerPixel) ? edgeData.pixelHeights[centerPixel] : 0f;
 
                 // Convert pixel coordinates to world coordinates
-                float worldX = (float)centerPixel.x / cellularPixelsPerUnit - halfWidth;
-                float worldZ = (float)centerPixel.y / cellularPixelsPerUnit - halfHeight;
+                float worldX = (float)centerPixel.x / pixelsPerUnit - halfWidth;
+                float worldZ = (float)centerPixel.y / pixelsPerUnit - halfHeight;
 
                 // Add small offset to prevent z-fighting
                 height += 0.02f;
@@ -228,12 +225,12 @@ namespace LandOfTheConsumers.Procedural
                     Vector2Int nextPixel = edgeData.centerPixels[i + 1];
 
                     // Get smoothed height for next pixel
-                    float nextHeight = centerPixelHeights.ContainsKey(nextPixel) ? centerPixelHeights[nextPixel] : 0f;
+                    float nextHeight = edgeData.pixelHeights.ContainsKey(nextPixel) ? edgeData.pixelHeights[nextPixel] : 0f;
                     nextHeight += 0.02f;
 
                     // Interpolate position and height (50% between neighbors)
-                    float interpWorldX = (float)nextPixel.x / cellularPixelsPerUnit - halfWidth;
-                    float interpWorldZ = (float)nextPixel.y / cellularPixelsPerUnit - halfHeight;
+                    float interpWorldX = (float)nextPixel.x / pixelsPerUnit - halfWidth;
+                    float interpWorldZ = (float)nextPixel.y / pixelsPerUnit - halfHeight;
 
                     Vector3 interpPos = new Vector3(
                         (worldX + interpWorldX) * 0.5f,
@@ -254,6 +251,14 @@ namespace LandOfTheConsumers.Procedural
 
             isGenerating = false;
             Debug.Log($"[EdgePairGenerator] Completed {edgeData.GetPairName()} with {smoothedLinePoints.Length} line points (from {edgeData.centerPixels.Count} center pixels)");
+
+            // Generate the edge spread mesh
+            EdgeSpreader edgeSpreader = GetComponent<EdgeSpreader>();
+            if (edgeSpreader != null)
+            {
+                edgeSpreader.SetupEdgeSpread();
+            }
+
             OnGenerationComplete?.Invoke();
         }
 
@@ -292,7 +297,7 @@ namespace LandOfTheConsumers.Procedural
         /// <summary>
         /// Searches forward through pixels to find valid height data for a region
         /// </summary>
-        private float FindValidHeightForward(int startIndex, int regionMinX, int regionMinY, int terrainWidth, int terrainHeight, float[,] heightMap, out bool foundValid)
+        private float FindValidHeightForward(int startIndex, int regionMinX, int regionMinY, int terrainWidth, int terrainHeight, float[,] heightMap, int pixelsPerUnit, out bool foundValid)
         {
             foundValid = false;
 
@@ -318,7 +323,7 @@ namespace LandOfTheConsumers.Procedural
         /// <summary>
         /// Searches backward through pixels to find valid height data for a region
         /// </summary>
-        private float FindValidHeightBackward(int startIndex, int regionMinX, int regionMinY, int terrainWidth, int terrainHeight, float[,] heightMap, out bool foundValid)
+        private float FindValidHeightBackward(int startIndex, int regionMinX, int regionMinY, int terrainWidth, int terrainHeight, float[,] heightMap, int pixelsPerUnit, out bool foundValid)
         {
             foundValid = false;
 
@@ -356,11 +361,11 @@ namespace LandOfTheConsumers.Procedural
             for (int i = 0; i < 5; i++)
             {
                 Vector2Int pixel = edgeData.centerPixels[i];
-                if (!centerPixelHeights.ContainsKey(pixel))
+                if (!edgeData.pixelHeights.ContainsKey(pixel))
                 {
                     Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - First pixel {i} at {pixel} is missing height data!");
                 }
-                else if (Mathf.Approximately(centerPixelHeights[pixel], 0f))
+                else if (Mathf.Approximately(edgeData.pixelHeights[pixel], 0f))
                 {
                     Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - First pixel {i} at {pixel} has zero height (may indicate sampling issue)");
                 }
@@ -371,11 +376,11 @@ namespace LandOfTheConsumers.Procedural
             for (int i = count - 5; i < count; i++)
             {
                 Vector2Int pixel = edgeData.centerPixels[i];
-                if (!centerPixelHeights.ContainsKey(pixel))
+                if (!edgeData.pixelHeights.ContainsKey(pixel))
                 {
                     Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Last pixel {count - 1 - i} at {pixel} is missing height data!");
                 }
-                else if (Mathf.Approximately(centerPixelHeights[pixel], 0f))
+                else if (Mathf.Approximately(edgeData.pixelHeights[pixel], 0f))
                 {
                     Debug.LogWarning($"[EdgePairGenerator] {edgeData.GetPairName()} - Last pixel {count - 1 - i} at {pixel} has zero height (may indicate sampling issue)");
                 }
@@ -385,53 +390,90 @@ namespace LandOfTheConsumers.Procedural
         }
 
         /// <summary>
-        /// Smooths edge heights to reduce spikes, steps, and flats.
-        /// Middle pixels take 40% from each side (prev and next).
-        /// First and last pixels take 60% from their single neighbor.
+        /// Smooths edge heights with two passes:
+        /// First pass (start to end): 40% from each neighbor
+        /// Second pass (end to start): 25% from each neighbor
+        /// First and last pixels only have one neighbor.
         /// </summary>
         private void SmoothEdgeHeights()
         {
             if (edgeData.centerPixels.Count < 2)
                 return; // No smoothing needed for single pixel
 
-            Dictionary<Vector2Int, float> smoothedHeights = new Dictionary<Vector2Int, float>();
+            // FIRST PASS: Start to end with 40% smoothing
+            Dictionary<Vector2Int, float> firstPassHeights = new Dictionary<Vector2Int, float>();
 
             for (int i = 0; i < edgeData.centerPixels.Count; i++)
             {
                 Vector2Int currentPixel = edgeData.centerPixels[i];
-                float currentHeight = centerPixelHeights.ContainsKey(currentPixel) ? centerPixelHeights[currentPixel] : 0f;
+                float currentHeight = edgeData.pixelHeights.ContainsKey(currentPixel) ? edgeData.pixelHeights[currentPixel] : 0f;
 
                 float smoothedHeight = currentHeight;
 
                 bool isFirstPixel = (i == 0);
                 bool isLastPixel = (i == edgeData.centerPixels.Count - 1);
 
-                // Determine smoothing amount based on position
-                float smoothingAmount = (isFirstPixel || isLastPixel) ? 0.6f : 0.4f;
+                // First pass uses 40% smoothing from neighbors
+                float smoothingAmount = 0.4f;
 
-                // Add smoothing from previous pixel
+                // Add smoothing from previous pixel (if exists)
                 if (i > 0)
                 {
                     Vector2Int prevPixel = edgeData.centerPixels[i - 1];
-                    float prevHeight = centerPixelHeights.ContainsKey(prevPixel) ? centerPixelHeights[prevPixel] : 0f;
+                    float prevHeight = edgeData.pixelHeights.ContainsKey(prevPixel) ? edgeData.pixelHeights[prevPixel] : 0f;
                     smoothedHeight += smoothingAmount * (prevHeight - currentHeight);
                 }
 
-                // Add smoothing from next pixel
+                // Add smoothing from next pixel (if exists)
                 if (i < edgeData.centerPixels.Count - 1)
                 {
                     Vector2Int nextPixel = edgeData.centerPixels[i + 1];
-                    float nextHeight = centerPixelHeights.ContainsKey(nextPixel) ? centerPixelHeights[nextPixel] : 0f;
+                    float nextHeight = edgeData.pixelHeights.ContainsKey(nextPixel) ? edgeData.pixelHeights[nextPixel] : 0f;
                     smoothedHeight += smoothingAmount * (nextHeight - currentHeight);
                 }
 
-                smoothedHeights[currentPixel] = smoothedHeight;
+                firstPassHeights[currentPixel] = smoothedHeight;
             }
 
-            // Replace original heights with smoothed heights
-            centerPixelHeights = smoothedHeights;
+            // SECOND PASS: End to start with 30% smoothing
+            Dictionary<Vector2Int, float> secondPassHeights = new Dictionary<Vector2Int, float>();
 
-            Debug.Log($"[EdgePairGenerator] Applied smoothing to {smoothedHeights.Count} edge heights");
+            for (int i = edgeData.centerPixels.Count - 1; i >= 0; i--)
+            {
+                Vector2Int currentPixel = edgeData.centerPixels[i];
+                float currentHeight = firstPassHeights.ContainsKey(currentPixel) ? firstPassHeights[currentPixel] : 0f;
+
+                float smoothedHeight = currentHeight;
+
+                bool isFirstPixel = (i == 0);
+                bool isLastPixel = (i == edgeData.centerPixels.Count - 1);
+
+                // Second pass uses 30% smoothing from neighbors
+                float smoothingAmount = 0.3f;
+
+                // Add smoothing from previous pixel (if exists)
+                if (i > 0)
+                {
+                    Vector2Int prevPixel = edgeData.centerPixels[i - 1];
+                    float prevHeight = firstPassHeights.ContainsKey(prevPixel) ? firstPassHeights[prevPixel] : 0f;
+                    smoothedHeight += smoothingAmount * (prevHeight - currentHeight);
+                }
+
+                // Add smoothing from next pixel (if exists)
+                if (i < edgeData.centerPixels.Count - 1)
+                {
+                    Vector2Int nextPixel = edgeData.centerPixels[i + 1];
+                    float nextHeight = firstPassHeights.ContainsKey(nextPixel) ? firstPassHeights[nextPixel] : 0f;
+                    smoothedHeight += smoothingAmount * (nextHeight - currentHeight);
+                }
+
+                secondPassHeights[currentPixel] = smoothedHeight;
+            }
+
+            // Replace original heights with final smoothed heights
+            edgeData.pixelHeights = secondPassHeights;
+
+            Debug.Log($"[EdgePairGenerator] Applied two-pass smoothing (40% forward, 30% backward) to {secondPassHeights.Count} edge heights");
         }
 
         /// <summary>
