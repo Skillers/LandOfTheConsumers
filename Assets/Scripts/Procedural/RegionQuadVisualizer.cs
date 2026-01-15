@@ -30,45 +30,23 @@ namespace LandOfTheConsumers.Procedural
         [Header("LOD Settings")]
         [Tooltip("Quad size for LOD 0 (highest detail) - 1/4 quads per level")]
         private float lod0QuadSize = 0.5f;
-
-        [Tooltip("Quad size for LOD 1 (medium detail) - 1/4 quads of LOD 0")]
-        private float lod1QuadSize = 1.0f;
-
-        [Tooltip("Quad size for LOD 2 (lowest detail) - 1/4 quads of LOD 1")]
-        private float lod2QuadSize = 2.0f;
-
-        [Tooltip("Screen relative transition height for LOD 0 to LOD 1")]
-        [SerializeField] private float lod0Transition = 0.6f;
-
-        [Tooltip("Screen relative transition height for LOD 1 to LOD 2")]
-        [SerializeField] private float lod1Transition = 0.3f;
-
-        [Tooltip("Screen relative transition height for LOD 2 to culled")]
-        [SerializeField] private float lod2Transition = 0.15f;
-
+        
         // Queue system for sequential region spawning
         private class RegionGenerationData
         {
             public CellularRegion region;
             public int regionIndex;
             public float regionHeight;
-            public Color regionColor;
             public TerrainNoisePreset selectedPreset;
             public string presetName;
             public GameObject regionObject;
             public GameObject lod0Object;
-            public GameObject lod1Object;
-            public GameObject lod2Object;
             public RegionTerrainGenerator terrainGeneratorLOD0;
-            public RegionTerrainGenerator terrainGeneratorLOD1;
-            public RegionTerrainGenerator terrainGeneratorLOD2;
-            public LODGroup lodGroup;
         }
 
         private class LODGenerationTask
         {
             public RegionGenerationData regionData;
-            public int lodLevel; // 0, 1, or 2
             public RegionTerrainGenerator generator;
             public GameObject targetObject;
         }
@@ -78,8 +56,8 @@ namespace LandOfTheConsumers.Procedural
         private bool isProcessingQueue = false;
         private bool cancelRequested = false;
 
-        // Event fired when all LOD0 generation is complete
-        public System.Action OnLOD0GenerationComplete;
+        // Event fired when all generation is complete
+        public System.Action OnGenerationComplete;
 
         private void Start()
         {
@@ -163,24 +141,7 @@ namespace LandOfTheConsumers.Procedural
                         Debug.LogWarning($"[RegionQuadVisualizer] Region {regionIdx}: Selected preset is null!");
                     }
                 }
-
-                // Random color for this region
-                Color regionRandomColor;
-                if (useRandomColors)
-                {
-                    regionRandomColor = new Color(
-                        Random.Range(0f, 1f),
-                        Random.Range(0f, 1f),
-                        Random.Range(0f, 1f),
-                        1f
-                    );
-                }
-                else
-                {
-                    // Use a deterministic color based on region index
-                    float hue = (float)regionIdx / regions.Count;
-                    regionRandomColor = Color.HSVToRGB(hue, 0.8f, 0.9f);
-                }
+                
 
                 // Store the preset mapping in the main visualizer
                 if (selectedPreset != null)
@@ -195,7 +156,6 @@ namespace LandOfTheConsumers.Procedural
                     region = region,
                     regionIndex = regionIdx,
                     regionHeight = regionHeight,
-                    regionColor = regionRandomColor,
                     selectedPreset = selectedPreset,
                     presetName = presetName
                 };
@@ -236,17 +196,11 @@ namespace LandOfTheConsumers.Procedural
                 data.regionObject.transform.localRotation = Quaternion.identity;
                 data.regionObject.transform.localScale = Vector3.one;
 
-                // Add LODGroup
-                data.lodGroup = data.regionObject.AddComponent<LODGroup>();
+
 
                 // Create LOD GameObjects
                 data.lod0Object = new GameObject("LOD0");
-                data.lod1Object = new GameObject("LOD1");
-                data.lod2Object = new GameObject("LOD2");
-
                 data.lod0Object.transform.SetParent(data.regionObject.transform, false);
-                data.lod1Object.transform.SetParent(data.regionObject.transform, false);
-                data.lod2Object.transform.SetParent(data.regionObject.transform, false);
 
                 // Create terrain generators if preset is assigned
                 if (data.selectedPreset != null)
@@ -260,20 +214,6 @@ namespace LandOfTheConsumers.Procedural
 
                     // Store LOD0 terrain generator for public access
                     regionTerrainGenerators[data.regionIndex] = data.terrainGeneratorLOD0;
-
-                    // LOD1: 1 pixel per unit
-                    data.terrainGeneratorLOD1 = data.regionObject.AddComponent<RegionTerrainGenerator>();
-                    data.terrainGeneratorLOD1.regionIndex = data.regionIndex;
-                    data.terrainGeneratorLOD1.assignedPreset = data.selectedPreset;
-                    data.terrainGeneratorLOD1.pixelsPerUnit = 1;
-                    data.terrainGeneratorLOD1.pixelSamplingStep = 1;
-
-                    // LOD2: 0.5 pixels per unit (sample every 2nd pixel)
-                    data.terrainGeneratorLOD2 = data.regionObject.AddComponent<RegionTerrainGenerator>();
-                    data.terrainGeneratorLOD2.regionIndex = data.regionIndex;
-                    data.terrainGeneratorLOD2.assignedPreset = data.selectedPreset;
-                    data.terrainGeneratorLOD2.pixelsPerUnit = 1;
-                    data.terrainGeneratorLOD2.pixelSamplingStep = 2;
                 }
 
                 allRegionData.Add(data);
@@ -292,8 +232,7 @@ namespace LandOfTheConsumers.Procedural
 
             Debug.Log($"[RegionQuadVisualizer] Region hierarchies created. Building LOD generation queue...");
 
-            // Phase 2: Build LOD generation queue with priority
-            // Priority: All LOD0s first, then all LOD1s, then all LOD2s
+            // Phase 2: Build LOD generation queue
             lodQueue.Clear();
 
             // Add all LOD0 tasks
@@ -305,41 +244,10 @@ namespace LandOfTheConsumers.Procedural
                     lodQueue.Enqueue(new LODGenerationTask
                     {
                         regionData = data,
-                        lodLevel = 0,
                         generator = data.terrainGeneratorLOD0,
                         targetObject = data.lod0Object
                     });
                     lod0TaskCount++;
-                }
-            }
-
-            // Add all LOD1 tasks
-            foreach (var data in allRegionData)
-            {
-                if (data.terrainGeneratorLOD1 != null)
-                {
-                    lodQueue.Enqueue(new LODGenerationTask
-                    {
-                        regionData = data,
-                        lodLevel = 1,
-                        generator = data.terrainGeneratorLOD1,
-                        targetObject = data.lod1Object
-                    });
-                }
-            }
-
-            // Add all LOD2 tasks
-            foreach (var data in allRegionData)
-            {
-                if (data.terrainGeneratorLOD2 != null)
-                {
-                    lodQueue.Enqueue(new LODGenerationTask
-                    {
-                        regionData = data,
-                        lodLevel = 2,
-                        generator = data.terrainGeneratorLOD2,
-                        targetObject = data.lod2Object
-                    });
                 }
             }
 
@@ -354,7 +262,7 @@ namespace LandOfTheConsumers.Procedural
                 LODGenerationTask task = lodQueue.Dequeue();
                 tasksProcessed++;
 
-                Debug.Log($"[RegionQuadVisualizer] Generating LOD{task.lodLevel} for region {task.regionData.regionIndex} ({tasksProcessed}/{totalTasks})");
+                Debug.Log($"[RegionQuadVisualizer] Generating region {task.regionData.regionIndex} ({tasksProcessed}/{totalTasks})");
 
                 // Flag to track completion
                 bool generationComplete = false;
@@ -375,16 +283,13 @@ namespace LandOfTheConsumers.Procedural
                     yield return null;
                 }
 
-                // After each LOD completes, update the LOD group for that region
-                UpdateLODGroupImmediately(task.regionData);
-
-                Debug.Log($"[RegionQuadVisualizer] LOD{task.lodLevel} for region {task.regionData.regionIndex} completed");
+                Debug.Log($"[RegionQuadVisualizer] Region {task.regionData.regionIndex} completed");
 
                 // Check if all LOD0 tasks are complete
                 if (tasksProcessed == lod0TaskCount && lod0TaskCount > 0)
                 {
                     Debug.Log($"[RegionQuadVisualizer] All LOD0 generation complete! Firing OnLOD0GenerationComplete event.");
-                    OnLOD0GenerationComplete?.Invoke();
+                    OnGenerationComplete?.Invoke();
                 }
             }
 
@@ -401,24 +306,6 @@ namespace LandOfTheConsumers.Procedural
             isProcessingQueue = false;
             cancelRequested = false;
         }
-
-        private void UpdateLODGroupImmediately(RegionGenerationData data)
-        {
-            // Collect current renderers from each LOD level
-            Renderer[] lod0Renderers = data.lod0Object.GetComponentsInChildren<MeshRenderer>();
-            Renderer[] lod1Renderers = data.lod1Object.GetComponentsInChildren<MeshRenderer>();
-            Renderer[] lod2Renderers = data.lod2Object.GetComponentsInChildren<MeshRenderer>();
-
-            // Setup LOD levels
-            LOD[] lods = new LOD[3];
-            lods[0] = new LOD(lod0Transition, lod0Renderers.Length > 0 ? lod0Renderers : new Renderer[0]);
-            lods[1] = new LOD(lod1Transition, lod1Renderers.Length > 0 ? lod1Renderers : new Renderer[0]);
-            lods[2] = new LOD(lod2Transition, lod2Renderers.Length > 0 ? lod2Renderers : new Renderer[0]);
-
-            data.lodGroup.SetLODs(lods);
-            data.lodGroup.RecalculateBounds();
-        }
-
 
         private Renderer GenerateSingleRegionMesh(GameObject targetObject, CellularRegion region, int regionIdx, float regionHeight, Color regionColor, float meshQuadSize)
         {

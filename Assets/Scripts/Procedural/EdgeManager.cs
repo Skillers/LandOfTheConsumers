@@ -48,7 +48,7 @@ namespace LandOfTheConsumers.Procedural
             {
                 if (regionQuadVisualizer != null)
                 {
-                    regionQuadVisualizer.OnLOD0GenerationComplete += OnLOD0Complete;
+                    regionQuadVisualizer.OnGenerationComplete += OnLOD0Complete;
                     Debug.Log("[EdgeManager] Subscribed to LOD0 completion event - will auto-generate edges");
                 }
                 else
@@ -63,7 +63,7 @@ namespace LandOfTheConsumers.Procedural
             // Unsubscribe from event
             if (regionQuadVisualizer != null)
             {
-                regionQuadVisualizer.OnLOD0GenerationComplete -= OnLOD0Complete;
+                regionQuadVisualizer.OnGenerationComplete -= OnLOD0Complete;
             }
         }
 
