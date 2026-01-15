@@ -148,7 +148,8 @@ namespace LandOfTheConsumers.Procedural
             foreach (var edgeData in allEdges)
             {
                 edgeData.BuildOrderedCenterLine();
-                Debug.Log($"[EdgeManager] {edgeData.GetPairName()}: {edgeData.centerSegments.Count} segments -> {edgeData.centerPixels.Count} ordered pixels");
+                edgeData.BuildChunkedPixels();
+                Debug.Log($"[EdgeManager] {edgeData.GetPairName()}: {edgeData.centerSegments.Count} segments -> {edgeData.centerPixels.Count} ordered pixels in {edgeData.chunkedPixels.Count} chunks");
             }
 
             // Build generation queue

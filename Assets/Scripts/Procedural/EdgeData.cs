@@ -10,6 +10,9 @@ namespace LandOfTheConsumers.Procedural
     [System.Serializable]
     public class EdgeSpineData
     {
+        // Chunk size matching RegionTerrainGenerator
+        private const int chunkSize = 32;
+
         // === REGION IDENTIFICATION ===
         public int regionIdA;  // First region ID (always the lower ID)
         public int regionIdB;  // Second region ID (always the higher ID)
@@ -28,6 +31,10 @@ namespace LandOfTheConsumers.Procedural
         // === EDGE ORIENTATION ===
         // Perpendicular direction (unit vector, 90° counter-clockwise from edge direction)
         public Vector2 perpendicularDirection;
+
+        // === CHUNKED DATA ===
+        // Edge pixels organized by chunk coordinate (chunkX, chunkY) -> list of pixels in that chunk
+        public Dictionary<Vector2Int, List<Vector2Int>> chunkedPixels;
 
         public EdgeSpineData(int regionA, int regionB)
         {
@@ -48,6 +55,7 @@ namespace LandOfTheConsumers.Procedural
             perpendicularDirection = Vector2.zero;
             centerPixelSet = new HashSet<Vector2Int>();
             pixelHeights = new Dictionary<Vector2Int, float>();
+            chunkedPixels = new Dictionary<Vector2Int, List<Vector2Int>>();
         }
 
         /// <summary>
@@ -179,6 +187,27 @@ namespace LandOfTheConsumers.Procedural
             }
         }
 
+        /// <summary>
+        /// Groups centerPixels by their chunk coordinate for easy lookup.
+        /// Call this after BuildOrderedCenterLine().
+        /// </summary>
+        public void BuildChunkedPixels()
+        {
+            chunkedPixels.Clear();
+
+            foreach (var pixel in centerPixels)
+            {
+                Vector2Int chunkCoord = new Vector2Int(pixel.x / chunkSize, pixel.y / chunkSize);
+
+                if (!chunkedPixels.TryGetValue(chunkCoord, out List<Vector2Int> pixelList))
+                {
+                    pixelList = new List<Vector2Int>();
+                    chunkedPixels[chunkCoord] = pixelList;
+                }
+
+                pixelList.Add(pixel);
+            }
+        }
 
         /// <summary>
         /// Get the formatted name for this edge pair GameObject

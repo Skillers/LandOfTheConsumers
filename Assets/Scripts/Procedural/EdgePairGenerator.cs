@@ -189,6 +189,9 @@ namespace LandOfTheConsumers.Procedural
             // Apply smoothing pass to reduce spikes, steps, and flats
             SmoothEdgeHeights();
 
+            // Apply final neighbor smoothing (35% from each neighbor)
+            ApplyFinalNeighborSmoothing();
+
             // Create LineRenderer for the center line
             lineRenderer = gameObject.AddComponent<LineRenderer>();
 
@@ -391,8 +394,8 @@ namespace LandOfTheConsumers.Procedural
 
         /// <summary>
         /// Smooths edge heights with two passes:
-        /// First pass (start to end): 40% from each neighbor
-        /// Second pass (end to start): 25% from each neighbor
+        /// First pass (start to end): 50% from each neighbor
+        /// Second pass (end to start): 50% from each neighbor
         /// First and last pixels only have one neighbor.
         /// </summary>
         private void SmoothEdgeHeights()
@@ -413,8 +416,8 @@ namespace LandOfTheConsumers.Procedural
                 bool isFirstPixel = (i == 0);
                 bool isLastPixel = (i == edgeData.centerPixels.Count - 1);
 
-                // First pass uses 40% smoothing from neighbors
-                float smoothingAmount = 0.4f;
+                // First pass uses 50% smoothing from neighbors
+                float smoothingAmount = 0.5f;
 
                 // Add smoothing from previous pixel (if exists)
                 if (i > 0)
@@ -448,8 +451,8 @@ namespace LandOfTheConsumers.Procedural
                 bool isFirstPixel = (i == 0);
                 bool isLastPixel = (i == edgeData.centerPixels.Count - 1);
 
-                // Second pass uses 30% smoothing from neighbors
-                float smoothingAmount = 0.3f;
+                // Second pass uses 50% smoothing from neighbors
+                float smoothingAmount = 0.5f;
 
                 // Add smoothing from previous pixel (if exists)
                 if (i > 0)
@@ -473,7 +476,51 @@ namespace LandOfTheConsumers.Procedural
             // Replace original heights with final smoothed heights
             edgeData.pixelHeights = secondPassHeights;
 
-            Debug.Log($"[EdgePairGenerator] Applied two-pass smoothing (40% forward, 30% backward) to {secondPassHeights.Count} edge heights");
+            Debug.Log($"[EdgePairGenerator] Applied two-pass smoothing (50% forward, 50% backward) to {secondPassHeights.Count} edge heights");
+        }
+
+        /// <summary>
+        /// Final smoothing pass: for each point, check both neighbors and apply 70% of height difference.
+        /// Uses a copy of heights to read from, then applies changes to the original.
+        /// </summary>
+        private void ApplyFinalNeighborSmoothing()
+        {
+            if (edgeData.centerPixels.Count < 3)
+                return; // Need at least 3 points for neighbor smoothing
+
+            // Make a copy of current heights to read from
+            Dictionary<Vector2Int, float> heightsCopy = new Dictionary<Vector2Int, float>(edgeData.pixelHeights);
+
+            float smoothingFactor = 0.7f;
+
+            for (int i = 0; i < edgeData.centerPixels.Count; i++)
+            {
+                Vector2Int currentPixel = edgeData.centerPixels[i];
+                float currentHeight = heightsCopy.ContainsKey(currentPixel) ? heightsCopy[currentPixel] : 0f;
+
+                float adjustment = 0f;
+
+                // Check previous neighbor
+                if (i > 0)
+                {
+                    Vector2Int prevPixel = edgeData.centerPixels[i - 1];
+                    float prevHeight = heightsCopy.ContainsKey(prevPixel) ? heightsCopy[prevPixel] : 0f;
+                    adjustment += smoothingFactor * (prevHeight - currentHeight);
+                }
+
+                // Check next neighbor
+                if (i < edgeData.centerPixels.Count - 1)
+                {
+                    Vector2Int nextPixel = edgeData.centerPixels[i + 1];
+                    float nextHeight = heightsCopy.ContainsKey(nextPixel) ? heightsCopy[nextPixel] : 0f;
+                    adjustment += smoothingFactor * (nextHeight - currentHeight);
+                }
+
+                // Apply adjustment to original heights
+                edgeData.pixelHeights[currentPixel] = currentHeight + adjustment;
+            }
+
+            Debug.Log($"[EdgePairGenerator] Applied final neighbor smoothing (70%) to {edgeData.pixelHeights.Count} edge heights");
         }
 
         /// <summary>
